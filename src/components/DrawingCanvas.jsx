@@ -7,41 +7,45 @@ import {
   eraseArea,
   getCurrentColor,
 } from '../utils/drawingEngine'
-import { getIndexTipPosition, getWristPosition, getHandSpread } from '../utils/gestureUtils'
+import {
+  getIndexTipPosition,
+  getWristPosition,
+  getHandSpread,
+} from '../utils/gestureUtils'
 
-const ERASER_SIZE   = 35
-const MIN_BRUSH     = 5
-const MAX_BRUSH     = 28
-const CLEAR_HOLD_MS = 1000 // ms to hold both palms to clear
+const ERASER_SIZE = 35
+const MIN_BRUSH   = 5
+const MAX_BRUSH   = 28
+
+// Smoothing factor — higher = smoother but more lag (0.3 to 0.7 is good)
+const SMOOTHING   = 0.5
 
 export default function DrawingCanvas({
   hands,
   gestureLabels,
   onBrushSize,
-  clearTrigger,     // increments when canvas should clear
+  clearTrigger,
 }) {
-  const drawCanvasRef = useRef(null) // persistent drawing layer
-  const uiCanvasRef   = useRef(null) // live UI layer
-  const prevPoints    = useRef({})   // { Left: {x,y}, Right: {x,y} }
-  const frameCount    = useRef(0)
-  const brushSize     = useRef(12)
-  const clearHoldRef  = useRef(null)
+  const drawCanvasRef  = useRef(null)
+  const uiCanvasRef    = useRef(null)
+  const smoothedPoints = useRef({})   // smoothed positions per hand
+  const frameCount     = useRef(0)
+  const brushSize      = useRef(12)
+  const isFirstPoint   = useRef({})   // track if this is the first point of a new stroke
 
-  // Clear the drawing canvas
   const clearCanvas = useCallback(() => {
     const canvas = drawCanvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     ctx.clearRect(0, 0, canvas.width, canvas.height)
-    prevPoints.current = {}
+    smoothedPoints.current = {}
+    isFirstPoint.current   = {}
   }, [])
 
-  // Clear when clearTrigger changes
   useEffect(() => {
     if (clearTrigger > 0) clearCanvas()
   }, [clearTrigger, clearCanvas])
 
-  // Main render loop — runs every time hands update
   useEffect(() => {
     const drawCanvas = drawCanvasRef.current
     const uiCanvas   = uiCanvasRef.current
@@ -50,14 +54,11 @@ export default function DrawingCanvas({
     const W = window.innerWidth
     const H = window.innerHeight
 
-    // Set canvas sizes if needed
     if (drawCanvas.width !== W || drawCanvas.height !== H) {
-      // Preserve drawing when resizing
       const temp = document.createElement('canvas')
       temp.width  = drawCanvas.width
       temp.height = drawCanvas.height
       temp.getContext('2d').drawImage(drawCanvas, 0, 0)
-
       drawCanvas.width  = W
       drawCanvas.height = H
       drawCanvas.getContext('2d').drawImage(temp, 0, 0)
@@ -69,60 +70,113 @@ export default function DrawingCanvas({
     const drawCtx = drawCanvas.getContext('2d')
     const uiCtx   = uiCanvas.getContext('2d')
 
-    // Clear UI layer every frame
     uiCtx.clearRect(0, 0, W, H)
-
     frameCount.current++
 
     // ── Brush size from hand spread ──
     if (hands.length === 2) {
-      const spread   = getHandSpread(hands[0].landmarks, hands[1].landmarks)
-      const newBrush = Math.round(MIN_BRUSH + spread * (MAX_BRUSH - MIN_BRUSH) * 2.5)
+      const spread      = getHandSpread(hands[0].landmarks, hands[1].landmarks)
+      const newBrush    = Math.round(MIN_BRUSH + spread * (MAX_BRUSH - MIN_BRUSH) * 2.5)
       brushSize.current = Math.min(Math.max(newBrush, MIN_BRUSH), MAX_BRUSH)
       onBrushSize?.(brushSize.current)
     }
 
-    // ── Process each hand ──
+    // ── Figure out which hand is trigger and which is pen ──
+    // The hand that is PINCHING is the trigger
+    // The OTHER hand is the pen (drawing point)
+
+    const pinchingHand  = hands.find(h => gestureLabels[h.handedness] === 'pinch')
+    const fistHand      = hands.find(h => gestureLabels[h.handedness] === 'fist')
+    const isPinching    = !!pinchingHand
+
+    // The pen hand is whichever hand is NOT pinching
+    // If only one hand → that hand controls everything (fist=erase, else cursor)
+    // If two hands → pinching hand = trigger, other hand = pen
+
     hands.forEach(({ landmarks, handedness }) => {
       const gesture = gestureLabels[handedness]
       const color   = getCurrentColor(handedness, frameCount.current)
-      const key     = handedness
 
       if (gesture === 'fist') {
         // ── Erase mode ──
         const pos = getWristPosition(landmarks, W, H)
         eraseArea(drawCtx, pos, ERASER_SIZE)
         drawEraserIndicator(uiCtx, pos, ERASER_SIZE)
-        prevPoints.current[key] = null
+        // Reset this hand's drawing state
+        smoothedPoints.current[handedness] = null
+        isFirstPoint.current[handedness]   = true
+        return
+      }
 
-      } else if (gesture === 'pinch') {
-        // ── Draw mode ──
-        const pos  = getIndexTipPosition(landmarks, W, H)
-        const prev = prevPoints.current[key]
+      // Get this hand's current raw position
+      const rawPos = getIndexTipPosition(landmarks, W, H)
 
-        if (prev) {
-          // Draw the aesthetic stroke
-          drawStroke(drawCtx, prev, pos, color, brushSize.current)
-          // Add sparkles on the drawing canvas too
-          drawSparkles(drawCtx, pos, color, brushSize.current)
+      if (isPinching && pinchingHand.handedness !== handedness) {
+        // ── This is the PEN hand (other hand is pinching) ──
+
+        // Smooth the position to prevent dotted lines
+        const prev = smoothedPoints.current[handedness]
+
+        let smoothedPos
+        if (!prev || isFirstPoint.current[handedness]) {
+          // First point of stroke — start here, don't draw yet
+          smoothedPos = rawPos
+          isFirstPoint.current[handedness] = false
+          smoothedPoints.current[handedness] = smoothedPos
+          // Show cursor but don't draw
+          drawCursor(uiCtx, smoothedPos, color, true, brushSize.current)
+          return
         }
 
-        // Show cursor on UI layer
-        drawCursor(uiCtx, pos, color, true, brushSize.current)
-        prevPoints.current[key] = pos
+        // Lerp between previous smoothed position and new raw position
+        // This fills gaps and prevents dots
+        smoothedPos = {
+          x: prev.x + (rawPos.x - prev.x) * (1 - SMOOTHING),
+          y: prev.y + (rawPos.y - prev.y) * (1 - SMOOTHING),
+        }
+
+        // Draw stroke from previous smoothed to new smoothed
+        drawStroke(drawCtx, prev, smoothedPos, color, brushSize.current)
+        drawSparkles(drawCtx, smoothedPos, color, brushSize.current)
+        drawCursor(uiCtx, smoothedPos, color, true, brushSize.current)
+
+        smoothedPoints.current[handedness] = smoothedPos
+
+      } else if (!isPinching) {
+        // ── No pinch active — show cursor only, reset stroke ──
+        drawCursor(uiCtx, rawPos, color, false, brushSize.current)
+        smoothedPoints.current[handedness] = null
+        isFirstPoint.current[handedness]   = true
 
       } else {
-        // ── Neutral / open — show cursor only ──
-        const pos = getIndexTipPosition(landmarks, W, H)
-        drawCursor(uiCtx, pos, color, false, brushSize.current)
-        prevPoints.current[key] = null
+        // ── This is the PINCHING hand — show small pinch indicator ──
+        const thumbTip = landmarks[4]
+        const pinchPos = {
+          x: (1 - thumbTip.x) * W,
+          y: thumbTip.y * H,
+        }
+        // Small white dot at pinch point to indicate trigger
+        uiCtx.save()
+        uiCtx.globalAlpha = 0.7
+        uiCtx.fillStyle   = '#ffffff'
+        uiCtx.shadowColor = color
+        uiCtx.shadowBlur  = 12
+        uiCtx.beginPath()
+        uiCtx.arc(pinchPos.x, pinchPos.y, 5, 0, Math.PI * 2)
+        uiCtx.fill()
+        uiCtx.restore()
+
+        // Reset this hand's drawing state since it's the trigger
+        smoothedPoints.current[handedness] = null
+        isFirstPoint.current[handedness]   = true
       }
     })
 
-    // Clear prev points for hands no longer detected
-    Object.keys(prevPoints.current).forEach(key => {
+    // Reset state for hands no longer detected
+    Object.keys(smoothedPoints.current).forEach(key => {
       if (!hands.find(h => h.handedness === key)) {
-        prevPoints.current[key] = null
+        smoothedPoints.current[key] = null
+        isFirstPoint.current[key]   = true
       }
     })
 
@@ -130,12 +184,10 @@ export default function DrawingCanvas({
 
   return (
     <>
-      {/* Persistent drawing layer */}
       <canvas
         ref={drawCanvasRef}
         className="absolute inset-0 w-full h-full pointer-events-none"
       />
-      {/* Live UI layer */}
       <canvas
         ref={uiCanvasRef}
         className="absolute inset-0 w-full h-full pointer-events-none"
