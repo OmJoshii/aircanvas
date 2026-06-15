@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { getGesture } from '../utils/gestureUtils'
 
 const CONNECTIONS = [
   [0,1],[1,2],[2,3],[3,4],
@@ -11,18 +12,26 @@ const CONNECTIONS = [
 
 const FINGERTIPS = [4, 8, 12, 16, 20]
 
+// Base color per hand
 const HAND_COLORS = {
   Left:  '#818cf8',
   Right: '#f472b6',
 }
 
-export default function HandSkeleton({ hands, videoRef }) {
+// Gesture changes the color
+const GESTURE_COLORS = {
+  pinch:   '#ffffff', // white when drawing
+  fist:    '#ef4444', // red when erasing
+  open:    '#34d399', // green when clearing
+  neutral: null,      // use default hand color
+}
+
+export default function HandSkeleton({ hands, pinchStates }) {
   const canvasRef = useRef(null)
 
   useEffect(() => {
     const canvas = canvasRef.current
-    const video  = videoRef.current
-    if (!canvas || !video) return
+    if (!canvas) return
 
     const ctx = canvas.getContext('2d')
     const W   = canvas.offsetWidth  || window.innerWidth
@@ -30,18 +39,18 @@ export default function HandSkeleton({ hands, videoRef }) {
 
     canvas.width  = W
     canvas.height = H
-
     ctx.clearRect(0, 0, W, H)
 
     if (!hands || hands.length === 0) return
 
     hands.forEach(({ landmarks, handedness }) => {
-      const color = HAND_COLORS[handedness] || '#ffffff'
+      const prevPinch = pinchStates?.[handedness] || false
+      const gesture   = getGesture(landmarks, prevPinch)
+      const baseColor = HAND_COLORS[handedness] || '#ffffff'
+      const color     = GESTURE_COLORS[gesture] || baseColor
 
-      // No flipping here — let canvas context handle the mirror
-      // We mirror the entire canvas context so coordinates
-      // match the mirrored video naturally
       ctx.save()
+      // Mirror context to match mirrored video
       ctx.translate(W, 0)
       ctx.scale(-1, 1)
 
@@ -52,12 +61,12 @@ export default function HandSkeleton({ hands, videoRef }) {
 
       const points = landmarks.map(toPixel)
 
-      // Draw connection lines
+      // ── Connection lines ──
       ctx.strokeStyle = color
-      ctx.lineWidth   = 2
-      ctx.globalAlpha = 0.5
+      ctx.lineWidth   = gesture === 'pinch' ? 2.5 : 1.5
+      ctx.globalAlpha = gesture === 'pinch' ? 0.8 : 0.45
       ctx.shadowColor = color
-      ctx.shadowBlur  = 8
+      ctx.shadowBlur  = gesture === 'pinch' ? 12 : 6
 
       CONNECTIONS.forEach(([a, b]) => {
         ctx.beginPath()
@@ -66,37 +75,70 @@ export default function HandSkeleton({ hands, videoRef }) {
         ctx.stroke()
       })
 
-      // Draw landmark dots
+      // ── Landmark dots ──
       points.forEach((point, index) => {
         const isTip   = FINGERTIPS.includes(index)
         const isWrist = index === 0
 
         ctx.save()
         ctx.shadowColor = color
-        ctx.shadowBlur  = isTip ? 16 : 8
+        ctx.shadowBlur  = isTip ? 20 : 8
         ctx.globalAlpha = 1
 
-        ctx.beginPath()
-        ctx.arc(point.x, point.y, isTip ? 7 : isWrist ? 6 : 4, 0, Math.PI * 2)
+        // Pinch — make thumb and index tips extra bright
+        const isPinchFinger = gesture === 'pinch' && (index === 4 || index === 8)
 
-        if (isTip) {
+        ctx.beginPath()
+        ctx.arc(
+          point.x, point.y,
+          isPinchFinger ? 9 : isTip ? 6 : isWrist ? 5 : 3.5,
+          0, Math.PI * 2
+        )
+
+        if (isTip || isPinchFinger) {
           ctx.fillStyle   = '#ffffff'
           ctx.fill()
           ctx.strokeStyle = color
-          ctx.lineWidth   = 2
+          ctx.lineWidth   = isPinchFinger ? 3 : 2
           ctx.stroke()
         } else {
           ctx.fillStyle   = color
-          ctx.globalAlpha = 0.85
+          ctx.globalAlpha = 0.75
           ctx.fill()
         }
 
         ctx.restore()
       })
 
+      // ── Gesture label above wrist ──
+      if (gesture !== 'neutral') {
+        const wrist = points[0]
+        const label = gesture === 'pinch' ? '✏ Drawing'
+                    : gesture === 'fist'  ? '⌫ Erasing'
+                    : gesture === 'open'  ? '✦ Clear'
+                    : ''
+
+        ctx.save()
+        // Undo the mirror for text so it reads correctly
+        ctx.scale(-1, 1)
+        ctx.translate(-W, 0)
+
+        ctx.font        = 'bold 12px Inter, system-ui, sans-serif'
+        ctx.fillStyle   = color
+        ctx.globalAlpha = 0.9
+        ctx.shadowColor = color
+        ctx.shadowBlur  = 10
+        ctx.textAlign   = 'center'
+
+        // Mirror the x position back for text
+        const textX = W - wrist.x
+        ctx.fillText(label, textX, wrist.y + 30)
+        ctx.restore()
+      }
+
       ctx.restore()
     })
-  }, [hands, videoRef])
+  }, [hands, pinchStates])
 
   return (
     <canvas
