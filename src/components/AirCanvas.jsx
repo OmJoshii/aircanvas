@@ -1,109 +1,150 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useCamera } from '../hooks/useCamera'
 import { useHandTracking } from '../hooks/useHandTracking'
 import HandSkeleton from './HandSkeleton'
+import DrawingCanvas from './DrawingCanvas'
 import { getGesture } from '../utils/gestureUtils'
+
+const CLEAR_HOLD_MS = 1000
 
 export default function AirCanvas({ onExit }) {
   const { videoRef, ready: camReady, error: camError } = useCamera(true)
   const { hands, modelReady } = useHandTracking(videoRef, camReady)
 
-  // Track pinch state per hand for hysteresis
-  const pinchStates = useRef({ Left: false, Right: false })
+  const pinchStates    = useRef({ Left: false, Right: false })
+  const bothPalmTimer  = useRef(null)
+  const bothPalmStart  = useRef(null)
 
-  // Track current gesture per hand for display
-  const [gestureLabels, setGestureLabels] = useState({ Left: '', Right: '' })
+  const [gestureLabels,  setGestureLabels]  = useState({ Left: '', Right: '' })
+  const [bothPalmsOpen,  setBothPalmsOpen]  = useState(false)
+  const [clearTrigger,   setClearTrigger]   = useState(0)
+  const [clearProgress,  setClearProgress]  = useState(0)
+  const [brushSize,      setBrushSize]      = useState(12)
+  const [showCleared,    setShowCleared]    = useState(false)
 
-  // Both palms open = clear canvas (coming in phase 5)
-  const [bothPalmsOpen, setBothPalmsOpen] = useState(false)
+  // Trigger canvas clear
+  const triggerClear = useCallback(() => {
+    setClearTrigger(t => t + 1)
+    setShowCleared(true)
+    setTimeout(() => setShowCleared(false), 1200)
+  }, [])
 
-  // Update gesture states every time hands change
+  // Update gestures every time hands change
   useEffect(() => {
     if (!hands || hands.length === 0) {
       setGestureLabels({ Left: '', Right: '' })
       setBothPalmsOpen(false)
+      setClearProgress(0)
+      bothPalmStart.current = null
       return
     }
 
     const newLabels = { Left: '', Right: '' }
 
     hands.forEach(({ landmarks, handedness }) => {
-      // Update pinch state with hysteresis
       const prev    = pinchStates.current[handedness]
       const gesture = getGesture(landmarks, prev)
-
-      // Store new pinch state
       pinchStates.current[handedness] = gesture === 'pinch'
-
       newLabels[handedness] = gesture
     })
 
     setGestureLabels(newLabels)
 
-    // Check if both hands are open palms
-    if (hands.length === 2) {
-      const bothOpen = hands.every(h => {
-        const prev = pinchStates.current[h.handedness]
-        return getGesture(h.landmarks, prev) === 'open'
-      })
-      setBothPalmsOpen(bothOpen)
+    // Both palms open = start clear countdown
+    const bothOpen = hands.length === 2 &&
+      hands.every(h => getGesture(h.landmarks, pinchStates.current[h.handedness]) === 'open')
+
+    setBothPalmsOpen(bothOpen)
+
+    if (bothOpen) {
+      if (!bothPalmStart.current) {
+        bothPalmStart.current = performance.now()
+      }
+      const elapsed  = performance.now() - bothPalmStart.current
+      const progress = Math.min(elapsed / CLEAR_HOLD_MS, 1)
+      setClearProgress(progress)
+
+      if (progress >= 1) {
+        triggerClear()
+        bothPalmStart.current = null
+        setClearProgress(0)
+      }
     } else {
-      setBothPalmsOpen(false)
+      bothPalmStart.current = null
+      setClearProgress(0)
     }
 
-  }, [hands])
+  }, [hands, triggerClear])
 
-  // Gesture display info
   const gestureInfo = {
-    pinch:   { label: 'Drawing',  color: '#ffffff', icon: '✏' },
-    fist:    { label: 'Erasing',  color: '#ef4444', icon: '⌫' },
-    open:    { label: 'Palm Open', color: '#34d399', icon: '🖐' },
-    neutral: { label: 'Neutral',  color: '#ffffff40', icon: '·' },
+    pinch:   { label: 'Drawing',   color: '#ffffff',  icon: '✏' },
+    fist:    { label: 'Erasing',   color: '#ef4444',  icon: '⌫' },
+    open:    { label: 'Palm Open', color: '#34d399',  icon: '🖐' },
+    neutral: { label: '',          color: '#ffffff40', icon: ''  },
   }
 
   return (
     <div className="relative w-screen h-screen bg-[#07070f] overflow-hidden">
 
-      {/* ── Video feed ── */}
+      {/* Video */}
       <video
         ref={videoRef}
         className="absolute inset-0 w-full h-full object-cover"
         style={{
           transform:  'scaleX(-1)',
-          opacity:    camReady ? 0.4 : 0,
+          opacity:    camReady ? 0.35 : 0,
           transition: 'opacity 1s ease',
         }}
         playsInline
         muted
       />
 
-      {/* ── Vignette ── */}
+      {/* Vignette */}
       {camReady && (
-        <div
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background: 'radial-gradient(ellipse at center, transparent 35%, rgba(7,7,15,0.75) 100%)'
-          }}
+        <div className="absolute inset-0 pointer-events-none"
+          style={{ background: 'radial-gradient(ellipse at center, transparent 30%, rgba(7,7,15,0.8) 100%)' }}
         />
       )}
 
-      {/* ── Both palms flash overlay ── */}
-      {bothPalmsOpen && (
-        <div
-          className="absolute inset-0 pointer-events-none z-10 transition-opacity duration-300"
-          style={{ background: 'rgba(52,211,153,0.06)' }}
-        />
-      )}
-
-      {/* ── Hand skeleton ── */}
-      {camReady && (
-        <HandSkeleton
+      {/* Drawing canvas */}
+      {camReady && modelReady && (
+        <DrawingCanvas
           hands={hands}
-          pinchStates={pinchStates.current}
+          gestureLabels={gestureLabels}
+          onBrushSize={setBrushSize}
+          clearTrigger={clearTrigger}
         />
       )}
 
-      {/* ── Loading overlay ── */}
+      {/* Hand skeleton */}
+      {camReady && (
+        <HandSkeleton hands={hands} pinchStates={pinchStates.current} />
+      )}
+
+      {/* Both palms clear overlay */}
+      {bothPalmsOpen && (
+        <div className="absolute inset-0 pointer-events-none z-10"
+          style={{ background: `rgba(52,211,153,${clearProgress * 0.08})` }}
+        />
+      )}
+
+      {/* Cleared flash */}
+      {showCleared && (
+        <div className="absolute inset-0 pointer-events-none z-20 flex items-center justify-center">
+          <div
+            className="px-6 py-3 rounded-2xl text-sm font-semibold"
+            style={{
+              background: 'rgba(52,211,153,0.15)',
+              border: '1px solid rgba(52,211,153,0.4)',
+              color: '#34d399',
+            }}
+          >
+            ✦ Canvas Cleared
+          </div>
+        </div>
+      )}
+
+      {/* Loading */}
       {(!camReady || !modelReady) && !camError && (
         <div className="absolute inset-0 flex items-center justify-center z-20">
           <div className="text-center">
@@ -120,97 +161,109 @@ export default function AirCanvas({ onExit }) {
               {!camReady ? 'Starting camera...' : 'Loading hand tracking...'}
             </p>
             <p className="text-white/25 text-sm">
-              {!camReady
-                ? 'Allow camera permission when prompted'
-                : 'Downloading AI model, one moment...'}
+              {!camReady ? 'Allow camera permission when prompted' : 'Downloading AI model, one moment...'}
             </p>
           </div>
         </div>
       )}
 
-      {/* ── Camera error ── */}
+      {/* Error */}
       {camError && (
         <div className="absolute inset-0 flex items-center justify-center z-20">
-          <div
-            className="rounded-3xl p-8 max-w-sm text-center"
-            style={{
-              background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.1)'
-            }}
-          >
+          <div className="rounded-3xl p-8 max-w-sm text-center"
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
             <div className="text-5xl mb-4">⚠️</div>
-            <p className="text-white/70 text-sm leading-relaxed">{camError}</p>
+            <p className="text-white/70 text-sm">{camError}</p>
           </div>
         </div>
       )}
 
-      {/* ── Top HUD ── */}
-      <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-6 py-4">
+      {/* Top HUD */}
+      <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-6 py-4">
+        <span className="text-white/70 font-bold tracking-wide text-sm">✦ Air Canvas</span>
 
-        <span className="text-white/80 font-bold tracking-wide">✦ Air Canvas</span>
-
-        {/* Hand gesture indicators */}
         <div className="flex items-center gap-2">
           {['Left', 'Right'].map(side => {
             const detected = hands.some(h => h.handedness === side)
             const gesture  = gestureLabels[side]
             const info     = gestureInfo[gesture] || gestureInfo.neutral
-            const color    = detected ? (side === 'Left' ? '#818cf8' : '#f472b6') : null
-
+            const color    = side === 'Left' ? '#818cf8' : '#f472b6'
             return (
-              <div
-                key={side}
+              <div key={side}
                 className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-300"
                 style={{
                   background: detected ? `${color}18` : 'rgba(255,255,255,0.04)',
-                  border:     `1px solid ${detected ? color + '40' : 'rgba(255,255,255,0.08)'}`,
-                  color:      detected ? color : 'rgba(255,255,255,0.25)',
+                  border: `1px solid ${detected ? color + '40' : 'rgba(255,255,255,0.08)'}`,
+                  color: detected ? color : 'rgba(255,255,255,0.2)',
                 }}
               >
-                <div
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{ background: detected ? color : 'rgba(255,255,255,0.15)' }}
-                />
+                <div className="w-1.5 h-1.5 rounded-full"
+                  style={{ background: detected ? color : 'rgba(255,255,255,0.15)' }} />
                 <span>{side}</span>
                 {detected && gesture && gesture !== 'neutral' && (
-                  <span style={{ color: info.color, opacity: 0.9 }}>
-                    · {info.icon} {info.label}
-                  </span>
+                  <span style={{ color: info.color }}>· {info.icon} {info.label}</span>
                 )}
               </div>
             )
           })}
         </div>
 
-        <button
-          onClick={onExit}
-          className="text-white/40 hover:text-white/70 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5"
-        >
+        <button onClick={onExit}
+          className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5">
           ✕ Exit
         </button>
       </div>
 
-      {/* ── Bottom hint ── */}
-      {camReady && modelReady && (
-        <div className="absolute bottom-6 left-0 right-0 flex justify-center z-10 pointer-events-none">
-          <div
-            className="px-4 py-2 rounded-full text-xs transition-all duration-500"
+      {/* Brush size indicator */}
+      {camReady && modelReady && hands.length > 0 && (
+        <div className="absolute left-6 top-1/2 -translate-y-1/2 z-30 flex flex-col items-center gap-2">
+          <span className="text-white/30 text-xs">Brush</span>
+          <div className="w-1 h-24 rounded-full overflow-hidden"
+            style={{ background: 'rgba(255,255,255,0.08)' }}>
+            <div
+              className="w-full rounded-full transition-all duration-200"
+              style={{
+                height: `${((brushSize - 5) / 23) * 100}%`,
+                marginTop: `${100 - ((brushSize - 5) / 23) * 100}%`,
+                background: 'linear-gradient(to top, #818cf8, #f472b6)',
+              }}
+            />
+          </div>
+          <span className="text-white/30 text-xs">{brushSize}</span>
+        </div>
+      )}
+
+      {/* Clear progress ring */}
+      {bothPalmsOpen && (
+        <div className="absolute bottom-16 left-0 right-0 flex justify-center z-30">
+          <div className="flex items-center gap-3 px-4 py-2 rounded-full text-xs"
             style={{
-              background: bothPalmsOpen
-                ? 'rgba(52,211,153,0.15)'
-                : 'rgba(255,255,255,0.05)',
-              border: `1px solid ${bothPalmsOpen
-                ? 'rgba(52,211,153,0.4)'
-                : 'rgba(255,255,255,0.08)'}`,
-              color: bothPalmsOpen ? '#34d399' : 'rgba(255,255,255,0.35)',
+              background: 'rgba(52,211,153,0.12)',
+              border: '1px solid rgba(52,211,153,0.35)',
+              color: '#34d399',
             }}
           >
-            {bothPalmsOpen
-              ? '🖐 Both palms open — release to clear canvas'
-              : hands.length === 0
-              ? 'Show your hands to the camera'
-              : 'Pinch to draw · Fist to erase · Both palms to clear'}
+            <div className="w-16 h-1 rounded-full overflow-hidden"
+              style={{ background: 'rgba(52,211,153,0.2)' }}>
+              <div
+                className="h-full rounded-full transition-all duration-100"
+                style={{
+                  width: `${clearProgress * 100}%`,
+                  background: '#34d399',
+                }}
+              />
+            </div>
+            Hold to clear...
           </div>
+        </div>
+      )}
+
+      {/* Bottom hint */}
+      {camReady && modelReady && !bothPalmsOpen && (
+        <div className="absolute bottom-6 left-0 right-0 flex justify-center z-30 pointer-events-none">
+          <p className="text-white/20 text-xs">
+            Pinch to draw · Fist to erase · Both palms to clear
+          </p>
         </div>
       )}
 
