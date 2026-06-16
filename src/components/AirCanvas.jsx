@@ -21,6 +21,7 @@ export default function AirCanvas({ onExit }) {
   const [clearProgress,  setClearProgress]  = useState(0)
   const [brushSize,      setBrushSize]      = useState(12)
   const [showCleared,    setShowCleared]    = useState(false)
+  const [resizeMode, setResizeMode] = useState(false)
 
   // Trigger canvas clear
   const triggerClear = useCallback(() => {
@@ -112,6 +113,7 @@ export default function AirCanvas({ onExit }) {
           hands={hands}
           gestureLabels={gestureLabels}
           onBrushSize={setBrushSize}
+          onResizeMode={setResizeMode}
           clearTrigger={clearTrigger}
         />
       )}
@@ -261,8 +263,13 @@ export default function AirCanvas({ onExit }) {
       {/* Bottom hint */}
       {camReady && modelReady && !bothPalmsOpen && (
         <div className="absolute bottom-6 left-0 right-0 flex justify-center z-30 pointer-events-none">
-          <p className="text-white/20 text-xs">
-            Pinch to draw · Fist to erase · Both palms to clear
+          <p
+            className="text-xs transition-colors duration-300"
+            style={{ color: resizeMode ? '#fbbf24' : 'rgba(255,255,255,0.2)' }}
+          >
+            {resizeMode
+              ? '✌️ Resizing brush — spread or close fingers'
+              : 'Pinch one hand to draw with the other · Fist to erase · Both palms to clear · ✌️✌️ both hands to resize'}
           </p>
         </div>
       )}
