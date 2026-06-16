@@ -10,7 +10,7 @@ export function landmarkDistance(a, b) {
 }
 
 // ─── Is a specific finger extended? ───────────────────────────────────
-function isFingerUp(landmarks, finger) {
+export function isFingerUp(landmarks, finger) {
   const tip  = landmarks[FINGER_TIPS[finger]]
   const base = landmarks[FINGER_BASES[finger]]
   // Tip must be significantly above base (lower y = higher on screen)
@@ -79,4 +79,23 @@ export function getHandSpread(hand1Landmarks, hand2Landmarks) {
   const w1 = hand1Landmarks[0]
   const w2 = hand2Landmarks[0]
   return landmarkDistance(w1, w2)
+}
+
+// ─── Detect "peace sign" — index + middle up, ring + pinky down ──────
+export function isPeaceSign(landmarks) {
+  const indexUp  = isFingerUp(landmarks, 'index')
+  const middleUp = isFingerUp(landmarks, 'middle')
+  const ringDown = !isFingerUp(landmarks, 'ring')
+  const pinkyDown = !isFingerUp(landmarks, 'pinky')
+  return indexUp && middleUp && ringDown && pinkyDown
+}
+
+// ─── Midpoint between index and middle fingertip ──────────────────────
+export function getPeaceMidpoint(landmarks, W, H) {
+  const index  = landmarks[8]
+  const middle = landmarks[12]
+  return {
+    x: (1 - (index.x + middle.x) / 2) * W,
+    y: ((index.y + middle.y) / 2) * H,
+  }
 }
