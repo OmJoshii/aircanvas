@@ -25,7 +25,7 @@ function lerpColor(c1, c2, t) {
   }
 }
 
-function toRgb(c, alpha = 1) {
+export function toRgb(c, alpha = 1) {
   return `rgba(${c.r},${c.g},${c.b},${alpha})`
 }
 
@@ -91,33 +91,77 @@ export function drawStroke(ctx, from, to, color, brushSize) {
 }
 
 // ─── Draw sparkle particles along the stroke ──────────────────────────
-export function drawSparkles(ctx, point, color, brushSize) {
-  // Number of sparkles scales with brush size
-  const count = Math.max(2, Math.floor(brushSize * 0.6))
+// ─── Draw lightning branch effect (replaces old sparkles) ─────────────
+// Occasionally draws small jagged branches off the main stroke
+export function drawLightning(ctx, from, to, color, brushSize) {
+  if (!from || !to) return
+
+  // Only trigger occasionally — not every single frame
+  // This keeps the effect sparse and clean instead of overwhelming
+  if (Math.random() > 0.12) return
+
+  const dx = to.x - from.x
+  const dy = to.y - from.y
+  const len = Math.hypot(dx, dy)
+  if (len < 1) return
+
+  // Direction of the main stroke
+  const angle = Math.atan2(dy, dx)
+
+  // Branch starts somewhere along the stroke segment
+  const t = Math.random()
+  const startX = from.x + dx * t
+  const startY = from.y + dy * t
+
+  // Branch shoots off at a perpendicular-ish angle
+  const branchAngle  = angle + (Math.random() > 0.5 ? 1 : -1) * (Math.PI / 3 + Math.random() * 0.4)
+  const branchLength = brushSize * (1.2 + Math.random() * 1.5)
+
+  // Build a jagged path with 2-3 segments (like a lightning bolt)
+  const segments = 2 + Math.floor(Math.random() * 2)
+  let cx = startX
+  let cy = startY
+  const points = [{ x: cx, y: cy }]
+
+  for (let i = 0; i < segments; i++) {
+    const segLen   = branchLength / segments
+    const jitter   = (Math.random() - 0.5) * 0.6
+    const segAngle = branchAngle + jitter
+    cx += Math.cos(segAngle) * segLen
+    cy += Math.sin(segAngle) * segLen
+    points.push({ x: cx, y: cy })
+  }
 
   ctx.save()
-  for (let i = 0; i < count; i++) {
-    // Random position around the draw point
-    const angle  = Math.random() * Math.PI * 2
-    const dist   = Math.random() * brushSize * 2.5
-    const x      = point.x + Math.cos(angle) * dist
-    const y      = point.y + Math.sin(angle) * dist
-    const size   = Math.random() * 1.8 + 0.3
-    const alpha  = Math.random() * 0.5 + 0.1
+  ctx.lineCap  = 'round'
+  ctx.lineJoin = 'round'
 
-    ctx.globalAlpha = alpha
-    ctx.fillStyle   = Math.random() > 0.4
-      ? toRgb(color)
-      : 'rgba(255,255,255,0.9)'
+  // Outer glow of the bolt
+  ctx.globalAlpha = 0.25
+  ctx.strokeStyle = toRgb(color)
+  ctx.lineWidth   = 2
+  ctx.shadowColor = toRgb(color)
+  ctx.shadowBlur  = 8
+  drawJaggedPath(ctx, points)
 
-    ctx.shadowColor = toRgb(color)
-    ctx.shadowBlur  = size * 4
+  // Bright core of the bolt
+  ctx.globalAlpha = 0.7
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)'
+  ctx.lineWidth   = 0.8
+  ctx.shadowBlur  = 4
+  drawJaggedPath(ctx, points)
 
-    ctx.beginPath()
-    ctx.arc(x, y, size, 0, Math.PI * 2)
-    ctx.fill()
-  }
   ctx.restore()
+}
+
+// Helper — draw a path through multiple points
+function drawJaggedPath(ctx, points) {
+  ctx.beginPath()
+  ctx.moveTo(points[0].x, points[0].y)
+  for (let i = 1; i < points.length; i++) {
+    ctx.lineTo(points[i].x, points[i].y)
+  }
+  ctx.stroke()
 }
 
 // ─── Draw cursor ring at fingertip ────────────────────────────────────
