@@ -1,46 +1,70 @@
-import { useState, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useCamera } from '../hooks/useCamera'
 import { useHandTracking } from '../hooks/useHandTracking'
 import HandSkeleton from './HandSkeleton'
 import DrawingCanvas from './DrawingCanvas'
+import Toast from './Toast'
 
 export default function AirCanvas({ onExit }) {
   const { videoRef, ready: camReady, error: camError } = useCamera(true)
   const { handsRef, modelReady } = useHandTracking(videoRef, camReady)
 
-  const [clearTrigger, setClearTrigger] = useState(0)
+  const canvasApiRef = useRef(null)
+
+  const [clearTrigger,  setClearTrigger]  = useState(0)
+  const [brushSize,     setBrushSize]     = useState(14)
+  const [resizeMode,    setResizeMode]    = useState(false)
   const [clearProgress, setClearProgress] = useState(0)
-  const [brushSize,    setBrushSize]    = useState(14)
-  const [resizeMode,   setResizeMode]   = useState(false)
-  const [showCleared,  setShowCleared]  = useState(false)
+  const [toast,         setToast]         = useState({ message: '', color: '#34d399', key: 0 })
+
+  const showToast = useCallback((message, color = '#34d399') => {
+    setToast({ message, color, key: Date.now() })
+  }, [])
+
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault()
+        canvasApiRef.current?.undo()
+        showToast('↶ Undo', '#818cf8')
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [showToast])
 
   const handleBrushSize = useCallback((size) => {
     setBrushSize(size)
   }, [])
 
   const handleResizeMode = useCallback((mode) => {
-    setResizeMode(mode)
-  }, [])
+    setResizeMode(prevMode => {
+      if (prevMode && !mode) {
+        showToast(`🖌 Brush locked at ${brushSize}px`, '#fbbf24')
+      }
+      return mode
+    })
+  }, [showToast, brushSize])
 
   const handleClear = useCallback(() => {
     setClearTrigger(t => t + 1)
-    setShowCleared(true)
-    setTimeout(() => setShowCleared(false), 1200)
-  }, [])
+    showToast('✦ Canvas cleared')
+  }, [showToast])
 
   const handleClearProgress = useCallback((progress) => {
     setClearProgress(progress)
   }, [])
 
   const handleAutoClear = useCallback(() => {
-    setShowCleared(true)
-    setTimeout(() => setShowCleared(false), 1200)
-  }, [])
+    showToast('✦ Canvas cleared')
+  }, [showToast])
 
   const isActive = camReady && modelReady
 
   return (
     <div className="relative w-screen h-screen bg-[#07070f] overflow-hidden">
+
+      <Toast message={toast.message} show={!!toast.key} color={toast.color} key={toast.key} />
 
       <video
         ref={videoRef}
@@ -62,33 +86,19 @@ export default function AirCanvas({ onExit }) {
 
       {isActive && (
         <DrawingCanvas
+          ref={canvasApiRef}
           handsRef={handsRef}
           isActive={isActive}
           onBrushSize={handleBrushSize}
           onResizeMode={handleResizeMode}
           onClearProgress={handleClearProgress}
           onAutoClear={handleAutoClear}
-          clearTrigger={clearTrigger} 
+          clearTrigger={clearTrigger}
         />
       )}
 
       {camReady && (
         <HandSkeleton handsRef={handsRef} isActive={camReady} />
-      )}
-
-      {showCleared && (
-        <div className="absolute inset-0 pointer-events-none z-20 flex items-center justify-center">
-          <div
-            className="px-6 py-3 rounded-2xl text-sm font-semibold"
-            style={{
-              background: 'rgba(52,211,153,0.15)',
-              border: '1px solid rgba(52,211,153,0.4)',
-              color: '#34d399',
-            }}
-          >
-            ✦ Canvas Cleared
-          </div>
-        </div>
       )}
 
       {(!camReady || !modelReady) && !camError && (
@@ -125,12 +135,25 @@ export default function AirCanvas({ onExit }) {
 
       <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-6 py-4">
         <span className="text-white/70 font-bold tracking-wide text-sm">✦ Air Canvas</span>
-        <button
-          onClick={handleClear}
-          className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5"
-        >
-          🗑 Clear
-        </button>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              canvasApiRef.current?.undo()
+              showToast('↶ Undo', '#818cf8')
+            }}
+            className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5"
+          >
+            ↶ Undo
+          </button>
+          <button
+            onClick={handleClear}
+            className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5"
+          >
+            🗑 Clear
+          </button>
+        </div>
+
         <button onClick={onExit}
           className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5">
           ✕ Exit
@@ -138,20 +161,38 @@ export default function AirCanvas({ onExit }) {
       </div>
 
       {isActive && (
-        <div className="absolute left-6 top-1/2 -translate-y-1/2 z-30 flex flex-col items-center gap-2">
-          <span className="text-white/30 text-xs">Brush</span>
-          <div className="w-1 h-24 rounded-full overflow-hidden"
+        <div
+          className="absolute left-6 top-1/2 -translate-y-1/2 z-30 flex flex-col items-center gap-3 px-3 py-4 rounded-2xl transition-all duration-300"
+          style={{
+            background: resizeMode ? 'rgba(251,191,36,0.1)' : 'rgba(255,255,255,0.03)',
+            border: `1px solid ${resizeMode ? 'rgba(251,191,36,0.3)' : 'rgba(255,255,255,0.06)'}`,
+          }}
+        >
+          <span
+            className="text-xs font-medium transition-colors"
+            style={{ color: resizeMode ? '#fbbf24' : 'rgba(255,255,255,0.3)' }}
+          >
+            {resizeMode ? '✌️' : 'Brush'}
+          </span>
+          <div className="relative w-1.5 h-24 rounded-full overflow-hidden"
             style={{ background: 'rgba(255,255,255,0.08)' }}>
             <div
-              className="w-full rounded-full transition-all duration-200"
+              className="absolute bottom-0 w-full rounded-full transition-all duration-200"
               style={{
                 height: `${((brushSize - 4) / 36) * 100}%`,
-                marginTop: `${100 - ((brushSize - 4) / 36) * 100}%`,
-                background: 'linear-gradient(to top, #818cf8, #f472b6)',
+                background: resizeMode
+                  ? '#fbbf24'
+                  : 'linear-gradient(to top, #818cf8, #f472b6)',
+                boxShadow: resizeMode ? '0 0 12px #fbbf24' : 'none',
               }}
             />
           </div>
-          <span className="text-white/30 text-xs">{brushSize}</span>
+          <span
+            className="text-xs font-mono transition-colors"
+            style={{ color: resizeMode ? '#fbbf24' : 'rgba(255,255,255,0.3)' }}
+          >
+            {brushSize}
+          </span>
         </div>
       )}
 
