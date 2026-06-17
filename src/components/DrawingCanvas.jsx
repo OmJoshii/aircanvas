@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react'
 import {
   drawStroke,
   drawLightning,
@@ -15,14 +15,14 @@ import {
   getGesture,
 } from '../utils/gestureUtils'
 
-const ERASER_SIZE        = 50   
+const ERASER_SIZE        = 35
 const MIN_BRUSH          = 4
 const MAX_BRUSH          = 40
 const SMOOTHING          = 0.5
 const RESIZE_SENSITIVITY = 0.15
-const CLEAR_HOLD_MS = 1000 // how long to hold both palms open to clear
+const CLEAR_HOLD_MS      = 1000
 
-export default function DrawingCanvas({
+const DrawingCanvas = forwardRef(function DrawingCanvas({
   handsRef,
   onBrushSize,
   onResizeMode,
@@ -30,7 +30,7 @@ export default function DrawingCanvas({
   onAutoClear,
   clearTrigger,
   isActive,
-}) {
+}, ref) {
   const drawCanvasRef   = useRef(null)
   const uiCanvasRef     = useRef(null)
   const smoothedPoints  = useRef({})
@@ -41,29 +41,54 @@ export default function DrawingCanvas({
   const resizeStartSize = useRef(null)
   const pinchStates     = useRef({ Left: false, Right: false })
   const animFrameRef    = useRef(null)
-  const bothPalmStart       = useRef(null)
+
+  const undoStack      = useRef([])
+  const wasPinching    = useRef({ Left: false, Right: false })
+  const MAX_UNDO_STEPS = 15
+
+  const lastReportedBrush    = useRef(14)
+  const lastReportedResize   = useRef(false)
+  const bothPalmStart        = useRef(null)
   const lastReportedProgress = useRef(0)
   const hasTriggeredClear    = useRef(false)
 
-  // Track last reported values to avoid spamming setState
-  const lastReportedBrush  = useRef(14)
-  const lastReportedResize = useRef(false)
+  const saveUndoSnapshot = useCallback(() => {
+    const canvas = drawCanvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    try {
+      const snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      undoStack.current.push(snapshot)
+      if (undoStack.current.length > MAX_UNDO_STEPS) {
+        undoStack.current.shift()
+      }
+    } catch (e) {
+      // ignore — can fail on zero-size canvas during init
+    }
+  }, [])
+
+  const undo = useCallback(() => {
+    const canvas = drawCanvasRef.current
+    if (!canvas || undoStack.current.length === 0) return
+    const ctx = canvas.getContext('2d')
+    const snapshot = undoStack.current.pop()
+    ctx.putImageData(snapshot, 0, 0)
+  }, [])
 
   const clearCanvas = useCallback(() => {
     const canvas = drawCanvasRef.current
     if (!canvas) return
+    saveUndoSnapshot()
     const ctx = canvas.getContext('2d')
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     smoothedPoints.current = {}
     isFirstPoint.current   = {}
-  }, [])
+  }, [saveUndoSnapshot])
 
   useEffect(() => {
     if (clearTrigger > 0) clearCanvas()
   }, [clearTrigger, clearCanvas])
 
-  // The main loop — runs independently via requestAnimationFrame
-  // NOT tied to React render cycles
   useEffect(() => {
     if (!isActive) return
 
@@ -106,64 +131,72 @@ export default function DrawingCanvas({
         pinchStates.current[handedness] = gesture === 'pinch'
         gestureLabels[handedness] = gesture
       })
+
+      // Detect any hand that just stopped pinching (stroke ended) — save undo
+      Object.keys(wasPinching.current).forEach(side => {
+        const isPinchingNow = gestureLabels[side] === 'pinch'
+        if (wasPinching.current[side] && !isPinchingNow) {
+          saveUndoSnapshot()
+        }
+        wasPinching.current[side] = isPinchingNow
+      })
+
       // ── BOTH PALMS OPEN — hold to clear ──
       const bothPalmsOpen = hands.length === 2 &&
-      hands.every(h => gestureLabels[h.handedness] === 'open')
+        hands.every(h => gestureLabels[h.handedness] === 'open')
 
       if (bothPalmsOpen) {
-      if (!bothPalmStart.current) {
-        bothPalmStart.current = performance.now()
-        hasTriggeredClear.current = false
-      }
+        if (!bothPalmStart.current) {
+          bothPalmStart.current = performance.now()
+          hasTriggeredClear.current = false
+        }
 
-      const elapsed  = performance.now() - bothPalmStart.current
-      const progress = Math.min(elapsed / CLEAR_HOLD_MS, 1)
+        const elapsed  = performance.now() - bothPalmStart.current
+        const progress = Math.min(elapsed / CLEAR_HOLD_MS, 1)
 
-    // Only report progress when it meaningfully changes (avoid spam)
-      const rounded = Math.round(progress * 100)
-      if (rounded !== lastReportedProgress.current) {
-        lastReportedProgress.current = rounded
-        onClearProgress?.(progress)
-      }
+        const rounded = Math.round(progress * 100)
+        if (rounded !== lastReportedProgress.current) {
+          lastReportedProgress.current = rounded
+          onClearProgress?.(progress)
+        }
 
-      if (progress >= 1 && !hasTriggeredClear.current) {
-        hasTriggeredClear.current = true
-        onAutoClear?.()
-        // Clear immediately on this canvas too
-        drawCtx.clearRect(0, 0, W, H)
-        smoothedPoints.current = {}
-        isFirstPoint.current   = {}
-      }
+        if (progress >= 1 && !hasTriggeredClear.current) {
+          hasTriggeredClear.current = true
+          saveUndoSnapshot()
+          onAutoClear?.()
+          drawCtx.clearRect(0, 0, W, H)
+          smoothedPoints.current = {}
+          isFirstPoint.current   = {}
+        }
 
-    // Draw a progress ring at the midpoint between both hands
-      const wrist1 = hands[0].landmarks[0]
-      const wrist2 = hands[1].landmarks[0]
-      const midX = ((1 - wrist1.x) * W + (1 - wrist2.x) * W) / 2
-      const midY = (wrist1.y * H + wrist2.y * H) / 2
+        const wrist1 = hands[0].landmarks[0]
+        const wrist2 = hands[1].landmarks[0]
+        const midX = ((1 - wrist1.x) * W + (1 - wrist2.x) * W) / 2
+        const midY = (wrist1.y * H + wrist2.y * H) / 2
 
-      uiCtx.save()
-      uiCtx.strokeStyle = 'rgba(52,211,153,0.2)'
-      uiCtx.lineWidth   = 4
-      uiCtx.beginPath()
-      uiCtx.arc(midX, midY, 30, 0, Math.PI * 2)
-      uiCtx.stroke()
+        uiCtx.save()
+        uiCtx.strokeStyle = 'rgba(52,211,153,0.2)'
+        uiCtx.lineWidth   = 4
+        uiCtx.beginPath()
+        uiCtx.arc(midX, midY, 30, 0, Math.PI * 2)
+        uiCtx.stroke()
 
-      uiCtx.strokeStyle = '#34d399'
-      uiCtx.lineWidth   = 4
-      uiCtx.shadowColor = '#34d399'
-      uiCtx.shadowBlur  = 12
-      uiCtx.beginPath()
-      uiCtx.arc(midX, midY, 30, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2)
-      uiCtx.stroke()
-      uiCtx.restore()
+        uiCtx.strokeStyle = '#34d399'
+        uiCtx.lineWidth   = 4
+        uiCtx.shadowColor = '#34d399'
+        uiCtx.shadowBlur  = 12
+        uiCtx.beginPath()
+        uiCtx.arc(midX, midY, 30, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2)
+        uiCtx.stroke()
+        uiCtx.restore()
 
       } else {
-      bothPalmStart.current = null
-      hasTriggeredClear.current = false
-      if (lastReportedProgress.current !== 0) {
+        bothPalmStart.current = null
+        hasTriggeredClear.current = false
+        if (lastReportedProgress.current !== 0) {
           lastReportedProgress.current = 0
           onClearProgress?.(0)
-      }
+        }
       }
 
       // ── BRUSH RESIZE MODE ──
@@ -307,7 +340,12 @@ export default function DrawingCanvas({
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
     }
-  }, [isActive, handsRef, onBrushSize, onResizeMode, onClearProgress, onAutoClear])
+  }, [isActive, handsRef, onBrushSize, onResizeMode, onClearProgress, onAutoClear, saveUndoSnapshot])
+
+  useImperativeHandle(ref, () => ({
+    undo,
+    canUndo: () => undoStack.current.length > 0,
+  }))
 
   return (
     <>
@@ -315,4 +353,6 @@ export default function DrawingCanvas({
       <canvas ref={uiCanvasRef}   className="absolute inset-0 w-full h-full pointer-events-none" />
     </>
   )
-}
+})
+
+export default DrawingCanvas
