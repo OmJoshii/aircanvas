@@ -15,12 +15,12 @@ import {
   getGesture,
 } from '../utils/gestureUtils'
 
-const ERASER_SIZE        = 35
+const ERASER_SIZE        = 50
 const MIN_BRUSH          = 4
 const MAX_BRUSH          = 40
 const SMOOTHING          = 0.5
 const RESIZE_SENSITIVITY = 0.15
-const CLEAR_HOLD_MS      = 1000
+const CLEAR_HOLD_MS      = 3000
 
 const DrawingCanvas = forwardRef(function DrawingCanvas({
   handsRef,
@@ -73,6 +73,42 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     const ctx = canvas.getContext('2d')
     const snapshot = undoStack.current.pop()
     ctx.putImageData(snapshot, 0, 0)
+  }, [])
+
+  const saveImage = useCallback((videoElement) => {
+    const drawCanvas = drawCanvasRef.current
+    if (!drawCanvas) return
+
+    // Create a temporary canvas to composite everything together
+    const exportCanvas = document.createElement('canvas')
+    exportCanvas.width  = drawCanvas.width
+    exportCanvas.height = drawCanvas.height
+    const exportCtx = exportCanvas.getContext('2d')
+
+    // Fill with dark background first (matches app background)
+    exportCtx.fillStyle = '#07070f'
+    exportCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height)
+
+    // Draw the dimmed mirrored video underneath, if available
+    if (videoElement && videoElement.videoWidth > 0) {
+      exportCtx.save()
+      exportCtx.globalAlpha = 0.25
+      // Mirror to match what the user sees on screen
+      exportCtx.translate(exportCanvas.width, 0)
+      exportCtx.scale(-1, 1)
+      exportCtx.drawImage(videoElement, 0, 0, exportCanvas.width, exportCanvas.height)
+      exportCtx.restore()
+    }
+
+    // Draw the actual artwork on top
+    exportCtx.drawImage(drawCanvas, 0, 0)
+
+    // Trigger download
+    const dataUrl = exportCanvas.toDataURL('image/png')
+    const link = document.createElement('a')
+    link.href = dataUrl
+    link.download = `aircanvas-${Date.now()}.png`
+    link.click()
   }, [])
 
   const clearCanvas = useCallback(() => {
@@ -344,6 +380,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
 
   useImperativeHandle(ref, () => ({
     undo,
+    saveImage,
     canUndo: () => undoStack.current.length > 0,
   }))
 
