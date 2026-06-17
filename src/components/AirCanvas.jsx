@@ -9,6 +9,7 @@ export default function AirCanvas({ onExit }) {
   const { handsRef, modelReady } = useHandTracking(videoRef, camReady)
 
   const [clearTrigger, setClearTrigger] = useState(0)
+  const [clearProgress, setClearProgress] = useState(0)
   const [brushSize,    setBrushSize]    = useState(14)
   const [resizeMode,   setResizeMode]   = useState(false)
   const [showCleared,  setShowCleared]  = useState(false)
@@ -23,6 +24,15 @@ export default function AirCanvas({ onExit }) {
 
   const handleClear = useCallback(() => {
     setClearTrigger(t => t + 1)
+    setShowCleared(true)
+    setTimeout(() => setShowCleared(false), 1200)
+  }, [])
+
+  const handleClearProgress = useCallback((progress) => {
+    setClearProgress(progress)
+  }, [])
+
+  const handleAutoClear = useCallback(() => {
     setShowCleared(true)
     setTimeout(() => setShowCleared(false), 1200)
   }, [])
@@ -56,7 +66,9 @@ export default function AirCanvas({ onExit }) {
           isActive={isActive}
           onBrushSize={handleBrushSize}
           onResizeMode={handleResizeMode}
-          clearTrigger={clearTrigger}
+          onClearProgress={handleClearProgress}
+          onAutoClear={handleAutoClear}
+          clearTrigger={clearTrigger} 
         />
       )}
 
@@ -144,14 +156,31 @@ export default function AirCanvas({ onExit }) {
       )}
 
       {isActive && (
-        <div className="absolute bottom-6 left-0 right-0 flex justify-center z-30 pointer-events-none">
+        <div className="absolute bottom-6 left-0 right-0 flex flex-col items-center gap-2 z-30 pointer-events-none">
+          {clearProgress > 0 && (
+            <div className="flex items-center gap-2 px-4 py-2 rounded-full text-xs"
+              style={{
+                background: 'rgba(52,211,153,0.12)',
+                border: '1px solid rgba(52,211,153,0.35)',
+                color: '#34d399',
+              }}
+            >
+              <div className="w-16 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(52,211,153,0.2)' }}>
+                <div
+                  className="h-full rounded-full transition-all duration-100"
+                  style={{ width: `${clearProgress * 100}%`, background: '#34d399' }}
+                />
+              </div>
+              Hold to clear...
+            </div>
+          )}
           <p
             className="text-xs transition-colors duration-300"
             style={{ color: resizeMode ? '#fbbf24' : 'rgba(255,255,255,0.2)' }}
           >
             {resizeMode
               ? '✌️ Resizing brush — spread or close fingers'
-              : 'Pinch one hand to draw with the other · Fist to erase · ✌️✌️ both hands to resize'}
+              : 'Pinch one hand to draw with the other · Fist to erase · Both palms to clear · ✌️✌️ to resize'}
           </p>
         </div>
       )}
