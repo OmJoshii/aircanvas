@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import AirCanvas from './components/AirCanvas'
 
 const gestures = [
@@ -11,6 +11,13 @@ const gestures = [
 export default function App() {
   const [started, setStarted] = useState(false)
   const [hovered, setHovered] = useState(false)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    // Tiny delay so the fade-in is visible on load
+    const timer = setTimeout(() => setMounted(true), 50)
+    return () => clearTimeout(timer)
+  }, [])
 
   if (started) {
     return <AirCanvas onExit={() => setStarted(false)} />
@@ -53,7 +60,13 @@ export default function App() {
       </div>
 
       {/* Main layout */}
-      <div className="relative z-10 w-full max-w-5xl mx-auto px-10 flex items-center gap-16">
+      <div
+        className="relative z-10 w-full max-w-5xl mx-auto px-10 flex items-center gap-16 transition-all duration-700"
+        style={{
+          opacity: mounted ? 1 : 0,
+          transform: mounted ? 'translateY(0)' : 'translateY(12px)',
+        }}
+      >
 
         {/* LEFT — Branding */}
         <div className="flex-1 flex flex-col items-start">
