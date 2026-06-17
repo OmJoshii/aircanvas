@@ -59,6 +59,11 @@ export default function AirCanvas({ onExit }) {
     showToast('✦ Canvas cleared')
   }, [showToast])
 
+  const handleSave = useCallback(() => {
+    canvasApiRef.current?.saveImage(videoRef.current)
+    showToast('💾 Image saved', '#a78bfa')
+  }, [showToast])
+
   const isActive = camReady && modelReady
 
   return (
@@ -145,6 +150,12 @@ export default function AirCanvas({ onExit }) {
             className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5"
           >
             ↶ Undo
+          </button>
+          <button
+            onClick={handleSave}
+            className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5"
+          >
+            💾 Save
           </button>
           <button
             onClick={handleClear}
