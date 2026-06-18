@@ -44,47 +44,32 @@ export function getCurrentColor(handedness, frameCount) {
 // ─── Draw one aesthetic stroke segment ────────────────────────────────
 export function drawStroke(ctx, from, to, color, brushSize) {
   if (!from || !to) return
-
-  // Skip if points are identical (no movement)
   if (from.x === to.x && from.y === to.y) return
 
   ctx.save()
   ctx.lineCap  = 'round'
   ctx.lineJoin = 'round'
 
-  // ── Layer 1: Outer glow (widest, most transparent) ──
-  ctx.globalAlpha = 0.06
+  // ── Layer 1: Glow using shadowBlur instead of ctx.filter ──
+  // shadowBlur is significantly cheaper than CSS filter blur
+  ctx.shadowColor = toRgb(color)
+  ctx.shadowBlur  = brushSize * 1.2
+  ctx.globalAlpha = 0.4
   ctx.strokeStyle = toRgb(color)
-  ctx.lineWidth   = brushSize * 6
-  ctx.filter      = `blur(${brushSize * 1.2}px)`
+  ctx.lineWidth   = brushSize * 0.8
   strokePath(ctx, from, to)
 
-  // ── Layer 2: Mid glow ──
-  ctx.globalAlpha = 0.15
-  ctx.strokeStyle = toRgb(color)
-  ctx.lineWidth   = brushSize * 3
-  ctx.filter      = `blur(${brushSize * 0.5}px)`
+  // ── Layer 2: Bright white core, no shadow (cheap) ──
+  ctx.shadowBlur  = 0
+  ctx.globalAlpha = 0.85
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)'
+  ctx.lineWidth   = brushSize * 0.3
   strokePath(ctx, from, to)
 
-  // ── Layer 3: Inner glow ──
-  ctx.globalAlpha = 0.35
+  // ── Layer 3: Color overlay on core, no shadow ──
+  ctx.globalAlpha = 0.55
   ctx.strokeStyle = toRgb(color)
-  ctx.lineWidth   = brushSize * 1.5
-  ctx.filter      = `blur(${brushSize * 0.15}px)`
-  strokePath(ctx, from, to)
-
-  // ── Layer 4: Core white stroke (the bright center) ──
-  ctx.globalAlpha = 0.9
-  ctx.strokeStyle = 'rgba(255,255,255,0.95)'
-  ctx.lineWidth   = brushSize * 0.35
-  ctx.filter      = 'none'
-  strokePath(ctx, from, to)
-
-  // ── Layer 5: Color overlay on core ──
-  ctx.globalAlpha = 0.6
-  ctx.strokeStyle = toRgb(color)
-  ctx.lineWidth   = brushSize * 0.6
-  ctx.filter      = 'none'
+  ctx.lineWidth   = brushSize * 0.5
   strokePath(ctx, from, to)
 
   ctx.restore()
@@ -98,7 +83,7 @@ export function drawLightning(ctx, from, to, color, brushSize) {
 
   // Only trigger occasionally — not every single frame
   // This keeps the effect sparse and clean instead of overwhelming
-  if (Math.random() > 0.12) return
+  if (Math.random() > 0.06) return
 
   const dx = to.x - from.x
   const dy = to.y - from.y
@@ -137,17 +122,11 @@ export function drawLightning(ctx, from, to, color, brushSize) {
   ctx.lineJoin = 'round'
 
   // Outer glow of the bolt
-  ctx.globalAlpha = 0.25
-  ctx.strokeStyle = toRgb(color)
-  ctx.lineWidth   = 2
+  // Single combined pass instead of two — cheaper
+  ctx.globalAlpha = 0.6
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)'
+  ctx.lineWidth   = 1
   ctx.shadowColor = toRgb(color)
-  ctx.shadowBlur  = 8
-  drawJaggedPath(ctx, points)
-
-  // Bright core of the bolt
-  ctx.globalAlpha = 0.7
-  ctx.strokeStyle = 'rgba(255,255,255,0.9)'
-  ctx.lineWidth   = 0.8
   ctx.shadowBlur  = 4
   drawJaggedPath(ctx, points)
 
@@ -170,20 +149,18 @@ export function drawCursor(ctx, point, color, isDrawing, brushSize) {
 
   const ringSize = isDrawing ? brushSize * 0.8 : 10
 
-  // Outer ring
+  ctx.shadowColor = toRgb(color)
+  ctx.shadowBlur  = isDrawing ? 8 : 4
+
   ctx.globalAlpha = isDrawing ? 0.8 : 0.4
   ctx.strokeStyle = toRgb(color)
   ctx.lineWidth   = isDrawing ? 2 : 1.5
-  ctx.shadowColor = toRgb(color)
-  ctx.shadowBlur  = isDrawing ? 15 : 8
   ctx.beginPath()
   ctx.arc(point.x, point.y, ringSize + 4, 0, Math.PI * 2)
   ctx.stroke()
 
-  // Inner dot
   ctx.globalAlpha = isDrawing ? 1 : 0.6
   ctx.fillStyle   = isDrawing ? 'rgba(255,255,255,0.95)' : toRgb(color)
-  ctx.shadowBlur  = isDrawing ? 20 : 10
   ctx.beginPath()
   ctx.arc(point.x, point.y, isDrawing ? 3 : 2, 0, Math.PI * 2)
   ctx.fill()

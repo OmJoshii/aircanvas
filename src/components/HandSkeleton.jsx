@@ -82,7 +82,7 @@ export default function HandSkeleton({ handsRef, isActive }) {
 
           ctx.save()
           ctx.shadowColor = color
-          ctx.shadowBlur  = isTip ? 20 : 8
+          ctx.shadowBlur  = isTip ? 10 : 4
           ctx.globalAlpha = 1
 
           ctx.beginPath()
