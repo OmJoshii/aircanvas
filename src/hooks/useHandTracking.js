@@ -4,7 +4,7 @@ import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision'
 export function useHandTracking(videoRef, isActive) {
   const landmarkerRef = useRef(null)
   const animFrameRef  = useRef(null)
-  const handsRef      = useRef([])      // current hands, updated every frame, NO re-render
+  const handsRef      = useRef([])      //current hands, updated every frame, NO re-render
   const [modelReady,  setModelReady]    = useState(false)
 
   useEffect(() => {
