@@ -31,7 +31,10 @@ export default function AirTyping({ handsRef, isActive, onClose }) {
       return
     }
 
-    const { character, confidence } = recognizeGesture(normalized, LETTER_TEMPLATES)
+    const { character, confidence, distance } = recognizeGesture(normalized, LETTER_TEMPLATES)
+
+    // Temporary debug log — shows exactly how close the match was
+    console.log(`Traced shape matched "${character}" — distance: ${distance.toFixed(1)}, confidence: ${confidence.toFixed(2)}`)
 
     setLastChar(character)
     setLastConfidence(confidence)
