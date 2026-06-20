@@ -4,6 +4,7 @@ import { useHandTracking } from '../hooks/useHandTracking'
 import HandSkeleton from './HandSkeleton'
 import DrawingCanvas from './DrawingCanvas'
 import Toast from './Toast'
+import AirTyping from './AirTyping'
 
 export default function AirCanvas({ onExit }) {
   const { videoRef, ready: camReady, error: camError } = useCamera(true)
@@ -16,6 +17,7 @@ export default function AirCanvas({ onExit }) {
   const [resizeMode,    setResizeMode]    = useState(false)
   const [clearProgress, setClearProgress] = useState(0)
   const [toast,         setToast]         = useState({ message: '', color: '#34d399', key: 0 })
+  const [airTypingOpen, setAirTypingOpen] = useState(false)
 
   const showToast = useCallback((message, color = '#34d399') => {
     setToast({ message, color, key: Date.now() })
@@ -163,6 +165,12 @@ export default function AirCanvas({ onExit }) {
           >
             🗑 Clear
           </button>
+          <button
+            onClick={() => setAirTypingOpen(true)}
+            className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5"
+          >
+            ✎ Air Type
+          </button>
         </div>
 
         <button onClick={onExit}
@@ -235,6 +243,14 @@ export default function AirCanvas({ onExit }) {
               : 'Pinch one hand to draw with the other · Fist to erase · Both palms to clear · ✌️✌️ to resize'}
           </p>
         </div>
+      )}
+
+      {airTypingOpen && (
+        <AirTyping
+          handsRef={handsRef}
+          isActive={isActive}
+          onClose={() => setAirTypingOpen(false)}
+       />
       )}
 
     </div>
