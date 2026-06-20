@@ -9,29 +9,38 @@ const ORIGIN           = { x: 0, y: 0 }
 
 // ─── Step 1: Resample a path into N evenly-spaced points ──────────────
 function resample(points, n) {
-  const pathLen = pathLength(points)
-  const interval = pathLen / (n - 1)
+  const I = pathLength(points) / (n - 1)
   let D = 0
-  const newPoints = [points[0]]
-  let pts = [...points]
+  const newPoints = [{ ...points[0] }]
+  const src = points.map(p => ({ ...p })) // work on a copy, never mutate input
 
-  for (let i = 1; i < pts.length; i++) {
-    const d = distance(pts[i - 1], pts[i])
-    if (D + d >= interval) {
-      const qx = pts[i - 1].x + ((interval - D) / d) * (pts[i].x - pts[i - 1].x)
-      const qy = pts[i - 1].y + ((interval - D) / d) * (pts[i].y - pts[i - 1].y)
+  let i = 1
+  while (i < src.length) {
+    const d = distance(src[i - 1], src[i])
+
+    if (D + d >= I) {
+      const t = (I - D) / d
+      const qx = src[i - 1].x + t * (src[i].x - src[i - 1].x)
+      const qy = src[i - 1].y + t * (src[i].y - src[i - 1].y)
       const q = { x: qx, y: qy }
+
       newPoints.push(q)
-      pts.splice(i, 0, q) // insert q so the loop continues correctly
+
+      // Replace the previous point with q so the next distance
+      // calculation correctly continues from this new interpolated point,
+      // without permanently growing the array or skipping segments
+      src[i - 1] = q
       D = 0
+      // do NOT increment i — re-evaluate distance from q to src[i]
     } else {
       D += d
+      i++
     }
   }
 
-  // Sometimes rounding leaves us one point short — pad with the last point
+  // Rounding can leave us one point short — pad with the final point
   while (newPoints.length < n) {
-    newPoints.push(points[points.length - 1])
+    newPoints.push({ ...points[points.length - 1] })
   }
 
   return newPoints
