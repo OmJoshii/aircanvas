@@ -96,7 +96,10 @@ function translateToOrigin(points) {
 export function normalizeGesture(rawPoints) {
   if (rawPoints.length < 2) return null
   let pts = resample(rawPoints, RESAMPLE_POINTS)
-  pts = rotateToZero(pts)
+  // NOTE: we deliberately skip rotateToZero here. Rotation normalization
+  // is correct for direction-agnostic gestures (like swipes), but letters
+  // are orientation-sensitive — an "L" rotated 90° is a different shape.
+  // Removing rotation keeps each letter's actual geometry intact.
   pts = scaleToSquare(pts, SQUARE_SIZE)
   pts = translateToOrigin(pts)
   return pts
