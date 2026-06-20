@@ -72,9 +72,13 @@ function rotateBy(points, angle, c) {
 // ─── Step 4: Scale the path to fit a standard bounding box ────────────
 function scaleToSquare(points, size) {
   const box = boundingBox(points)
+  // Uniform scale factor based on the LARGER dimension — this preserves
+  // the actual proportions of the traced shape (a tall I stays tall,
+  // a wide L stays wide) instead of stretching everything into a square
+  const scale = size / Math.max(box.width, box.height)
   return points.map(p => ({
-    x: p.x * (size / box.width),
-    y: p.y * (size / box.height),
+    x: p.x * scale,
+    y: p.y * scale,
   }))
 }
 
