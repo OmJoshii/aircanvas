@@ -68,9 +68,16 @@ const RAW_TEMPLATES = {
 
 // Pre-normalize all templates once at module load time so recognition
 // at runtime is just comparison, not repeated normalization work
+// Mirror templates horizontally to match the mirrored coordinate space
+// produced by getIndexTipPosition (since the camera feed is mirrored
+// for a natural "looking in a mirror" drawing experience)
+function mirrorX(points) {
+  return points.map(p => ({ x: 100 - p.x, y: p.y }))
+}
+
 export const LETTER_TEMPLATES = Object.fromEntries(
   Object.entries(RAW_TEMPLATES).map(([char, points]) => [
     char,
-    normalizeGesture(points),
+    normalizeGesture(mirrorX(points)),
   ])
 )
