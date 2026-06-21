@@ -5,6 +5,7 @@ import HandSkeleton from './HandSkeleton'
 import DrawingCanvas from './DrawingCanvas'
 import Toast from './Toast'
 import AirTyping from './AirTyping'
+import RecognitionDebugger from './RecognitionDebugger'
 
 export default function AirCanvas({ onExit }) {
   const { videoRef, ready: camReady, error: camError } = useCamera(true)
@@ -18,6 +19,7 @@ export default function AirCanvas({ onExit }) {
   const [clearProgress, setClearProgress] = useState(0)
   const [toast,         setToast]         = useState({ message: '', color: '#34d399', key: 0 })
   const [airTypingOpen, setAirTypingOpen] = useState(false)
+  const [debuggerOpen, setDebuggerOpen] = useState(false)
 
   const showToast = useCallback((message, color = '#34d399') => {
     setToast({ message, color, key: Date.now() })
@@ -171,6 +173,13 @@ export default function AirCanvas({ onExit }) {
           >
             ✎ Air Type
           </button>
+
+          <button
+            onClick={() => setDebuggerOpen(true)}
+            className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5"
+          >
+            🔬 Debug
+          </button>
         </div>
 
         <button onClick={onExit}
@@ -250,6 +259,14 @@ export default function AirCanvas({ onExit }) {
           handsRef={handsRef}
           isActive={isActive}
           onClose={() => setAirTypingOpen(false)}
+       />
+      )}
+
+      {debuggerOpen && (
+        <RecognitionDebugger
+          handsRef={handsRef}
+          isActive={isActive}
+          onClose={() => setDebuggerOpen(false)}
        />
       )}
 
