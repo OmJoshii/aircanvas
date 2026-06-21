@@ -99,14 +99,44 @@ function translateToOrigin(points) {
 // ─── Full normalization pipeline ───────────────────────────────────────
 export function normalizeGesture(rawPoints) {
   if (rawPoints.length < 2) return null
-  let pts = resample(rawPoints, RESAMPLE_POINTS)
-  // NOTE: we deliberately skip rotateToZero here. Rotation normalization
-  // is correct for direction-agnostic gestures (like swipes), but letters
-  // are orientation-sensitive — an "L" rotated 90° is a different shape.
-  // Removing rotation keeps each letter's actual geometry intact.
+
+  // If the raw trace has very few points (fast gesture, or low frame
+  // rate during capture), densify it first by interpolating extra
+  // points along each segment. Otherwise resample() has too little
+  // information to reconstruct the actual shape accurately.
+  const densified = densifyPath(rawPoints, 80)
+
+  let pts = resample(densified, RESAMPLE_POINTS)
   pts = scaleToSquare(pts, SQUARE_SIZE)
   pts = translateToOrigin(pts)
   return pts
+}
+
+// Ensure a path has at least `minPoints` total points by inserting
+// evenly-spaced intermediate points along straight segments between
+// consecutive raw points. This protects against sparse input from
+// fast gestures or dropped animation frames.
+function densifyPath(points, minPoints) {
+  if (points.length >= minPoints) return points
+
+  const result = [points[0]]
+  const segmentsNeeded = minPoints - points.length
+  const perSegment = Math.ceil(segmentsNeeded / (points.length - 1))
+
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]
+    const b = points[i]
+    for (let j = 1; j <= perSegment; j++) {
+      const t = j / (perSegment + 1)
+      result.push({
+        x: a.x + (b.x - a.x) * t,
+        y: a.y + (b.y - a.y) * t,
+      })
+    }
+    result.push(b)
+  }
+
+  return result
 }
 
 // ─── Compare two normalized paths — average point-to-point distance ───
