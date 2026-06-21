@@ -153,3 +153,17 @@ export function recognizeGesture(normalizedPoints, templates) {
 
   return { character: bestMatch, confidence: score, distance: bestDistance }
 }
+
+// ─── Debug helper: compare against ALL templates, sorted by closeness ──
+// Used only for calibration — not part of normal recognition flow
+export function recognizeGestureDebug(normalizedPoints, templates) {
+  const results = Object.entries(templates).map(([char, templatePoints]) => {
+    const d = pathDistance(normalizedPoints, templatePoints)
+    const maxDistance = 0.5 * SQUARE_SIZE
+    const score = Math.max(0, 1 - d / maxDistance)
+    return { character: char, distance: d, confidence: score }
+  })
+
+  results.sort((a, b) => a.distance - b.distance)
+  return results
+}
