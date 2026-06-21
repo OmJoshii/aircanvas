@@ -145,10 +145,9 @@ export function recognizeGesture(normalizedPoints, templates) {
     }
   })
 
-  // Convert raw distance into a 0-1 confidence score
-  // Smaller distance = higher confidence. This scaling is empirical —
-  // tuned so typical good matches land around 0.7-0.95
-  const maxDistance = 0.5 * Math.sqrt(SQUARE_SIZE ** 2 + SQUARE_SIZE ** 2)
+  // Standard $1 recognizer confidence formula — divides by half the
+  // square size (a single dimension), matching the published algorithm
+  const maxDistance = 0.5 * SQUARE_SIZE
   const score = Math.max(0, 1 - bestDistance / maxDistance)
 
   return { character: bestMatch, confidence: score, distance: bestDistance }
