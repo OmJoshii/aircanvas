@@ -3,7 +3,7 @@ import { normalizeGesture, recognizeGestureDebug } from '../utils/gestureRecogni
 import { LETTER_TEMPLATES } from '../utils/letterTemplates'
 import { getIndexTipPosition, getGesture } from '../utils/gestureUtils'
 
-const MIN_POINTS = 12
+const MIN_POINTS = 5
 
 export default function RecognitionDebugger({ handsRef, isActive, onClose }) {
   const canvasRef    = useRef(null)

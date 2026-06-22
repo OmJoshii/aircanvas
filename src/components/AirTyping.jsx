@@ -3,7 +3,7 @@ import { normalizeGesture, recognizeGesture } from '../utils/gestureRecognizer'
 import { LETTER_TEMPLATES } from '../utils/letterTemplates'
 import { getIndexTipPosition, getGesture } from '../utils/gestureUtils'
 
-const MIN_POINTS_TO_RECOGNIZE = 12   // ignore tiny accidental taps
+const MIN_POINTS_TO_RECOGNIZE = 5   // ignore tiny accidental taps
 const CONFIDENCE_THRESHOLD    = 0.55 // below this, we don't accept the match
 
 export default function AirTyping({ handsRef, isActive, onClose }) {
