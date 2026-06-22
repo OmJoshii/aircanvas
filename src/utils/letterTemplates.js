@@ -73,13 +73,9 @@ const RAW_TEMPLATES = {
 // Mirror templates horizontally to match the mirrored coordinate space
 // produced by getIndexTipPosition (since the camera feed is mirrored
 // for a natural "looking in a mirror" drawing experience)
-function mirrorX(points) {
-  return points.map(p => ({ x: 100 - p.x, y: p.y }))
-}
-
 export const LETTER_TEMPLATES = Object.fromEntries(
   Object.entries(RAW_TEMPLATES).map(([char, points]) => [
     char,
-    normalizeGesture(mirrorX(points)),
+    normalizeGesture(points),
   ])
 )
