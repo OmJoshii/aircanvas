@@ -5,6 +5,7 @@ import HandSkeleton from './HandSkeleton'
 import DrawingCanvas from './DrawingCanvas'
 import Toast from './Toast'
 import AirKeyboard from './AirKeyboard'
+import BrushPicker from './BrushPicker'
 
 export default function AirCanvas({ onExit }) {
   const { videoRef, ready: camReady, error: camError } = useCamera(true)
@@ -18,6 +19,9 @@ export default function AirCanvas({ onExit }) {
   const [clearProgress, setClearProgress] = useState(0)
   const [toast,         setToast]         = useState({ message: '', color: '#34d399', key: 0 })
   const [airKeyboardOpen, setAirKeyboardOpen] = useState(false)
+  const [brushPickerOpen, setBrushPickerOpen] = useState(false)
+  const [activeBrush,     setActiveBrush]     = useState('neon')
+  const [activeColor,     setActiveColor]     = useState(null) // null = use hand palette
 
   const showToast = useCallback((message, color = '#34d399') => {
     setToast({ message, color, key: Date.now() })
@@ -101,11 +105,25 @@ export default function AirCanvas({ onExit }) {
           onClearProgress={handleClearProgress}
           onAutoClear={handleAutoClear}
           clearTrigger={clearTrigger}
+          brushId={activeBrush}
+          customColor={activeColor}
         />
       )}
 
       {camReady && (
         <HandSkeleton handsRef={handsRef} isActive={camReady} />
+      )}
+
+      {brushPickerOpen && (
+        <BrushPicker
+          handsRef={handsRef}
+          isActive={isActive}
+          currentBrush={activeBrush}
+          currentColor={activeColor}
+          onBrushChange={(b) => { setActiveBrush(b); setBrushPickerOpen(false) }}
+          onColorChange={(c) => { setActiveColor(c); setBrushPickerOpen(false) }}
+          onClose={() => setBrushPickerOpen(false)}
+        />
       )}
 
       {(!camReady || !modelReady) && !camError && (
@@ -164,6 +182,14 @@ export default function AirCanvas({ onExit }) {
             className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5"
           >
             🗑 Clear
+          </button>
+
+          <button
+            onClick={() => setBrushPickerOpen(b => !b)}
+            className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5"
+            style={{ color: brushPickerOpen ? '#a78bfa' : undefined }}
+          >
+            🎨 Brush
           </button>
           <button
             onClick={() => setAirKeyboardOpen(true)}
