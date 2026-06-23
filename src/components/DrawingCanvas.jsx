@@ -6,6 +6,7 @@ import {
   drawEraserIndicator,
   eraseArea,
   getCurrentColor,
+  hexToRgb,
 } from '../utils/drawingEngine'
 import {
   getIndexTipPosition,
@@ -30,6 +31,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
   onAutoClear,
   clearTrigger,
   isActive,
+  brushId,
+  customColor,
 }, ref) {
   const drawCanvasRef   = useRef(null)
   const uiCanvasRef     = useRef(null)
@@ -329,7 +332,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             y: prev.y + (rawPos.y - prev.y) * (1 - SMOOTHING),
           }
 
-          drawStroke(drawCtx, prev, smoothedPos, color, brushSize.current)
+          const strokeColor = customColor ? hexToRgb(customColor) : color
+          drawStroke(drawCtx, prev, smoothedPos, strokeColor, brushSize.current, brushId, frameCount.current)
           drawLightning(drawCtx, prev, smoothedPos, color, brushSize.current)
           drawCursor(uiCtx, smoothedPos, color, true, brushSize.current)
 
