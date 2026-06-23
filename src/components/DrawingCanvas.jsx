@@ -44,6 +44,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
   const resizeStartSize = useRef(null)
   const pinchStates     = useRef({ Left: false, Right: false })
   const animFrameRef    = useRef(null)
+  const brushIdRef    = useRef('neon')
+  const customColorRef = useRef(null)
 
   const undoStack      = useRef([])
   const wasPinching    = useRef({ Left: false, Right: false })
@@ -54,6 +56,9 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
   const bothPalmStart        = useRef(null)
   const lastReportedProgress = useRef(0)
   const hasTriggeredClear    = useRef(false)
+
+  brushIdRef.current    = brushId
+  customColorRef.current = customColor
 
   const saveUndoSnapshot = useCallback(() => {
     const canvas = drawCanvasRef.current
@@ -332,8 +337,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             y: prev.y + (rawPos.y - prev.y) * (1 - SMOOTHING),
           }
 
-          const strokeColor = customColor ? hexToRgb(customColor) : color
-          drawStroke(drawCtx, prev, smoothedPos, strokeColor, brushSize.current, brushId, frameCount.current)
+          const strokeColor = customColorRef.current ? hexToRgb(customColorRef.current) : color
+          drawStroke(drawCtx, prev, smoothedPos, strokeColor, brushSize.current, brushIdRef.current, frameCount.current)
           drawLightning(drawCtx, prev, smoothedPos, color, brushSize.current)
           drawCursor(uiCtx, smoothedPos, color, true, brushSize.current)
 
