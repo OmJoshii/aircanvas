@@ -6,10 +6,20 @@ import DrawingCanvas from './DrawingCanvas'
 import Toast from './Toast'
 import AirKeyboard from './AirKeyboard'
 import BrushPicker from './BrushPicker'
+import AccessibilityPanel from './AccessibilityPanel'
+import { useVoiceCommands } from '../hooks/useVoiceCommands'
+import { getAccessibilitySettings, subscribeAccessibility } from '../utils/accessibilitySettings'
 
 export default function AirCanvas({ onExit }) {
   const { videoRef, ready: camReady, error: camError } = useCamera(true)
   const { handsRef, modelReady } = useHandTracking(videoRef, camReady)
+
+  useVoiceCommands(a11ySettings.voiceCommands && isActive, {
+    onClear:  handleClear,
+    onUndo:   () => { canvasApiRef.current?.undo(); showToast('↶ Undo', '#818cf8') },
+    onSave:   handleSave,
+    onBrush:  (b) => { setActiveBrush(b); showToast(`🎨 ${b} brush`, '#a78bfa') },
+  })
 
   const canvasApiRef = useRef(null)
 
@@ -22,6 +32,8 @@ export default function AirCanvas({ onExit }) {
   const [brushPickerOpen, setBrushPickerOpen] = useState(false)
   const [activeBrush,     setActiveBrush]     = useState('neon')
   const [activeColor,     setActiveColor]     = useState(null) // null = use hand palette
+  const [a11yOpen,       setA11yOpen]       = useState(false)
+  const [a11ySettings,   setA11ySettings]   = useState(getAccessibilitySettings())
 
   const showToast = useCallback((message, color = '#34d399') => {
     setToast({ message, color, key: Date.now() })
@@ -38,6 +50,11 @@ export default function AirCanvas({ onExit }) {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [showToast])
+
+  useEffect(() => {
+    const unsub = subscribeAccessibility(setA11ySettings)
+    return unsub
+  }, [])
 
   const handleBrushSize = useCallback((size) => {
     setBrushSize(size)
@@ -82,7 +99,8 @@ export default function AirCanvas({ onExit }) {
         className="absolute inset-0 w-full h-full object-cover"
         style={{
           transform:  'scaleX(-1)',
-          opacity:    camReady ? 0.35 : 0,
+          opacity:    camReady ? (a11ySettings.highContrast ? 0.65 : 0.35) : 0,
+          filter:     a11ySettings.highContrast ? 'brightness(1.4) contrast(1.2)' : undefined,
           transition: 'opacity 1s ease',
         }}
         playsInline
@@ -93,6 +111,14 @@ export default function AirCanvas({ onExit }) {
         <div className="absolute inset-0 pointer-events-none"
           style={{ background: 'radial-gradient(ellipse at center, transparent 30%, rgba(7,7,15,0.8) 100%)' }}
         />
+      )}
+
+      {airKeyboardOpen && (
+        <AirKeyboard
+          handsRef={handsRef}
+          isActive={isActive}
+          onClose={() => setAirKeyboardOpen(false)}
+       />
       )}
 
       {isActive && (
@@ -108,6 +134,10 @@ export default function AirCanvas({ onExit }) {
           brushId={activeBrush}
           customColor={activeColor}
         />
+      )}
+
+      {a11yOpen && (
+        <AccessibilityPanel onClose={() => setA11yOpen(false)} />
       )}
 
       {camReady && (
@@ -198,6 +228,13 @@ export default function AirCanvas({ onExit }) {
             ⌨️ Air Type
           </button>
 
+          <button
+            onClick={() => setA11yOpen(true)}
+            className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5"
+          >
+            ♿ Access
+          </button> 
+
         </div>
 
         <button onClick={onExit}
@@ -242,6 +279,22 @@ export default function AirCanvas({ onExit }) {
         </div>
       )}
 
+      {a11ySettings.voiceCommands && isActive && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30">
+          <div
+            className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs"
+            style={{
+              background: 'rgba(52,211,153,0.1)',
+              border: '1px solid rgba(52,211,153,0.25)',
+              color: '#34d399',
+            }}
+          >
+            <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+            Listening for voice commands
+          </div>
+        </div>
+      )}
+
       {isActive && (
         <div className="absolute bottom-6 left-0 right-0 flex flex-col items-center gap-2 z-30 pointer-events-none">
           {clearProgress > 0 && (
@@ -272,13 +325,7 @@ export default function AirCanvas({ onExit }) {
         </div>
       )}
 
-      {airKeyboardOpen && (
-        <AirKeyboard
-          handsRef={handsRef}
-          isActive={isActive}
-          onClose={() => setAirKeyboardOpen(false)}
-       />
-      )}
+      
 
     </div>
   )
