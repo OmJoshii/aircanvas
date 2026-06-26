@@ -14,13 +14,6 @@ export default function AirCanvas({ onExit }) {
   const { videoRef, ready: camReady, error: camError } = useCamera(true)
   const { handsRef, modelReady } = useHandTracking(videoRef, camReady)
 
-  useVoiceCommands(a11ySettings.voiceCommands && isActive, {
-    onClear:  handleClear,
-    onUndo:   () => { canvasApiRef.current?.undo(); showToast('↶ Undo', '#818cf8') },
-    onSave:   handleSave,
-    onBrush:  (b) => { setActiveBrush(b); showToast(`🎨 ${b} brush`, '#a78bfa') },
-  })
-
   const canvasApiRef = useRef(null)
 
   const [clearTrigger,  setClearTrigger]  = useState(0)
@@ -87,6 +80,13 @@ export default function AirCanvas({ onExit }) {
     showToast('💾 Image saved', '#a78bfa')
   }, [showToast])
 
+  useVoiceCommands(a11ySettings.voiceCommands && isActive, {
+    onClear:  handleClear,
+    onUndo:   () => { canvasApiRef.current?.undo(); showToast('↶ Undo', '#818cf8') },
+    onSave:   handleSave,
+    onBrush:  (b) => { setActiveBrush(b); showToast(`🎨 ${b} brush`, '#a78bfa') },
+  })
+
   const isActive = camReady && modelReady
 
   return (
@@ -113,14 +113,6 @@ export default function AirCanvas({ onExit }) {
         />
       )}
 
-      {airKeyboardOpen && (
-        <AirKeyboard
-          handsRef={handsRef}
-          isActive={isActive}
-          onClose={() => setAirKeyboardOpen(false)}
-       />
-      )}
-
       {isActive && (
         <DrawingCanvas
           ref={canvasApiRef}
@@ -134,10 +126,6 @@ export default function AirCanvas({ onExit }) {
           brushId={activeBrush}
           customColor={activeColor}
         />
-      )}
-
-      {a11yOpen && (
-        <AccessibilityPanel onClose={() => setA11yOpen(false)} />
       )}
 
       {camReady && (
@@ -154,6 +142,10 @@ export default function AirCanvas({ onExit }) {
           onColorChange={(c) => { setActiveColor(c); setBrushPickerOpen(false) }}
           onClose={() => setBrushPickerOpen(false)}
         />
+      )}
+
+      {a11yOpen && (
+        <AccessibilityPanel onClose={() => setA11yOpen(false)} />
       )}
 
       {(!camReady || !modelReady) && !camError && (
@@ -325,7 +317,13 @@ export default function AirCanvas({ onExit }) {
         </div>
       )}
 
-      
+      {airKeyboardOpen && (
+        <AirKeyboard
+          handsRef={handsRef}
+          isActive={isActive}
+          onClose={() => setAirKeyboardOpen(false)}
+       />
+      )}
 
     </div>
   )
