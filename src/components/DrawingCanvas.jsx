@@ -7,6 +7,7 @@ import {
   eraseArea,
   getCurrentColor,
   hexToRgb,
+  toRgb,
 } from '../utils/drawingEngine'
 import {
   getIndexTipPosition,
@@ -15,6 +16,7 @@ import {
   getPeaceMidpoint,
   getGesture,
 } from '../utils/gestureUtils'
+import { getAccessibilitySettings } from '../utils/accessibilitySettings'
 
 const ERASER_SIZE        = 50
 const MIN_BRUSH          = 4
@@ -56,6 +58,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
   const bothPalmStart        = useRef(null)
   const lastReportedProgress = useRef(0)
   const hasTriggeredClear    = useRef(false)
+
+  const dwellDrawRef  = useRef({ handedness: null, startTime: null })
 
   brushIdRef.current    = brushId
   customColorRef.current = customColor
@@ -304,12 +308,17 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
       }
 
       // ── DRAWING LOGIC ──
+      const a11y         = getAccessibilitySettings()
+      const cursorSize   = a11y.largerCursor ? brushSize.current * 1.8 : brushSize.current
       const pinchingHand = hands.find(h => gestureLabels[h.handedness] === 'pinch')
-      const isPinching    = !!pinchingHand
+      const isPinching   = !!pinchingHand
 
       hands.forEach(({ landmarks, handedness }) => {
         const gesture = gestureLabels[handedness]
         const color   = getCurrentColor(handedness, frameCount.current)
+        const strokeColor = customColorRef.current
+          ? hexToRgb(customColorRef.current)
+          : color
 
         if (gesture === 'fist') {
           const pos = getWristPosition(landmarks, W, H)
@@ -322,49 +331,115 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
 
         const rawPos = getIndexTipPosition(landmarks, W, H)
 
+        // ── Dwell to draw mode ──
+        if (a11y.dwellToDraw) {
+          const dwell   = dwellDrawRef.current
+          const isStill = dwell.handedness === handedness &&
+            dwell.lastPos &&
+            Math.hypot(rawPos.x - dwell.lastPos.x, rawPos.y - dwell.lastPos.y) < 15
+
+          if (!isStill) {
+            dwellDrawRef.current = { handedness, startTime: now, lastPos: rawPos }
+          } else {
+            const dwellElapsed = now - dwell.startTime
+            const dwellActive  = dwellElapsed > a11y.dwellDrawMs
+
+            if (dwellActive) {
+              // Treat as if pinching — draw at this hand's fingertip
+              const prev = smoothedPoints.current[handedness]
+              if (!prev || isFirstPoint.current[handedness]) {
+                smoothedPoints.current[handedness] = rawPos
+                isFirstPoint.current[handedness]   = false
+              } else {
+                const smoothedPos = {
+                  x: prev.x + (rawPos.x - prev.x) * (1 - SMOOTHING),
+                  y: prev.y + (rawPos.y - prev.y) * (1 - SMOOTHING),
+                }
+                drawStroke(drawCtx, prev, smoothedPos, strokeColor, brushSize.current, brushIdRef.current, frameCount.current)
+                drawCursor(uiCtx, smoothedPos, color, true, cursorSize)
+                smoothedPoints.current[handedness] = smoothedPos
+              }
+              return
+            }
+
+            // Show dwell progress ring
+            const progress = Math.min((now - dwell.startTime) / a11y.dwellDrawMs, 1)
+            uiCtx.save()
+            uiCtx.strokeStyle = toRgb(color)
+            uiCtx.lineWidth   = 3
+            uiCtx.shadowColor = toRgb(color)
+            uiCtx.shadowBlur  = 8
+            uiCtx.beginPath()
+            uiCtx.arc(rawPos.x, rawPos.y, cursorSize + 8, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2)
+            uiCtx.stroke()
+            uiCtx.restore()
+          }
+
+          drawCursor(uiCtx, rawPos, color, false, cursorSize)
+          return
+        }
+
+        // ── One-handed mode ──
+        if (a11y.oneHandedMode) {
+          if (gesture === 'pinch') {
+            const prev = smoothedPoints.current[handedness]
+            if (!prev || isFirstPoint.current[handedness]) {
+              smoothedPoints.current[handedness] = rawPos
+              isFirstPoint.current[handedness]   = false
+              drawCursor(uiCtx, rawPos, color, true, cursorSize)
+              return
+            }
+            const smoothedPos = {
+              x: prev.x + (rawPos.x - prev.x) * (1 - SMOOTHING),
+              y: prev.y + (rawPos.y - prev.y) * (1 - SMOOTHING),
+            }
+            drawStroke(drawCtx, prev, smoothedPos, strokeColor, brushSize.current, brushIdRef.current, frameCount.current)
+            drawLightning(drawCtx, prev, smoothedPos, strokeColor, brushSize.current)
+            drawCursor(uiCtx, smoothedPos, color, true, cursorSize)
+            smoothedPoints.current[handedness] = smoothedPos
+          } else {
+            drawCursor(uiCtx, rawPos, color, false, cursorSize)
+            smoothedPoints.current[handedness] = null
+            isFirstPoint.current[handedness]   = true
+          }
+          return
+        }
+
+        // ── Normal two-handed mode ──
         if (isPinching && pinchingHand.handedness !== handedness) {
           const prev = smoothedPoints.current[handedness]
-
           if (!prev || isFirstPoint.current[handedness]) {
             smoothedPoints.current[handedness] = rawPos
             isFirstPoint.current[handedness]   = false
-            drawCursor(uiCtx, rawPos, color, true, brushSize.current)
+            drawCursor(uiCtx, rawPos, color, true, cursorSize)
             return
           }
-
           const smoothedPos = {
             x: prev.x + (rawPos.x - prev.x) * (1 - SMOOTHING),
             y: prev.y + (rawPos.y - prev.y) * (1 - SMOOTHING),
           }
-
-          const strokeColor = customColorRef.current ? hexToRgb(customColorRef.current) : color
           drawStroke(drawCtx, prev, smoothedPos, strokeColor, brushSize.current, brushIdRef.current, frameCount.current)
-          drawLightning(drawCtx, prev, smoothedPos, color, brushSize.current)
-          drawCursor(uiCtx, smoothedPos, color, true, brushSize.current)
-
+          drawLightning(drawCtx, prev, smoothedPos, strokeColor, brushSize.current)
+          drawCursor(uiCtx, smoothedPos, color, true, cursorSize)
           smoothedPoints.current[handedness] = smoothedPos
 
         } else if (!isPinching) {
-          drawCursor(uiCtx, rawPos, color, false, brushSize.current)
+          drawCursor(uiCtx, rawPos, color, false, cursorSize)
           smoothedPoints.current[handedness] = null
           isFirstPoint.current[handedness]   = true
 
         } else {
           const thumbTip = landmarks[4]
-          const pinchPos = {
-            x: (1 - thumbTip.x) * W,
-            y: thumbTip.y * H,
-          }
+          const pinchPos = { x: (1 - thumbTip.x) * W, y: thumbTip.y * H }
           uiCtx.save()
           uiCtx.globalAlpha = 0.7
           uiCtx.fillStyle   = '#ffffff'
-          uiCtx.shadowColor = color
+          uiCtx.shadowColor = toRgb(color)
           uiCtx.shadowBlur  = 12
           uiCtx.beginPath()
           uiCtx.arc(pinchPos.x, pinchPos.y, 5, 0, Math.PI * 2)
           uiCtx.fill()
           uiCtx.restore()
-
           smoothedPoints.current[handedness] = null
           isFirstPoint.current[handedness]   = true
         }
