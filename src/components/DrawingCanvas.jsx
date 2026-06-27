@@ -144,6 +144,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
       const hands      = handsRef.current || []
       const drawCanvas = drawCanvasRef.current
       const uiCanvas   = uiCanvasRef.current
+      const now        = performance.now()
 
       if (!drawCanvas || !uiCanvas) {
         animFrameRef.current = requestAnimationFrame(loop)
