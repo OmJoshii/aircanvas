@@ -16,37 +16,23 @@ export default function AirCanvas({ onExit }) {
 
   const canvasApiRef = useRef(null)
 
-  const [clearTrigger,  setClearTrigger]  = useState(0)
-  const [brushSize,     setBrushSize]     = useState(14)
-  const [resizeMode,    setResizeMode]    = useState(false)
-  const [clearProgress, setClearProgress] = useState(0)
-  const [toast,         setToast]         = useState({ message: '', color: '#34d399', key: 0 })
+  const [clearTrigger,    setClearTrigger]    = useState(0)
+  const [brushSize,       setBrushSize]       = useState(14)
+  const [resizeMode,      setResizeMode]      = useState(false)
+  const [clearProgress,   setClearProgress]   = useState(0)
+  const [toast,           setToast]           = useState({ message: '', color: '#34d399', key: 0 })
   const [airKeyboardOpen, setAirKeyboardOpen] = useState(false)
   const [brushPickerOpen, setBrushPickerOpen] = useState(false)
   const [activeBrush,     setActiveBrush]     = useState('neon')
-  const [activeColor,     setActiveColor]     = useState(null) // null = use hand palette
-  const [a11yOpen,       setA11yOpen]       = useState(false)
-  const [a11ySettings,   setA11ySettings]   = useState(getAccessibilitySettings())
+  const [activeColor,     setActiveColor]     = useState(null)
+  const [a11yOpen,        setA11yOpen]        = useState(false)
+  const [a11ySettings,    setA11ySettings]    = useState(getAccessibilitySettings())
+
+  // isActive defined here — before any hook that needs it
+  const isActive = camReady && modelReady
 
   const showToast = useCallback((message, color = '#34d399') => {
     setToast({ message, color, key: Date.now() })
-  }, [])
-
-  useEffect(() => {
-    function handleKeyDown(e) {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        e.preventDefault()
-        canvasApiRef.current?.undo()
-        showToast('↶ Undo', '#818cf8')
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [showToast])
-
-  useEffect(() => {
-    const unsub = subscribeAccessibility(setA11ySettings)
-    return unsub
   }, [])
 
   const handleBrushSize = useCallback((size) => {
@@ -80,14 +66,30 @@ export default function AirCanvas({ onExit }) {
     showToast('💾 Image saved', '#a78bfa')
   }, [showToast])
 
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+        e.preventDefault()
+        canvasApiRef.current?.undo()
+        showToast('↶ Undo', '#818cf8')
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [showToast])
+
+  useEffect(() => {
+    const unsub = subscribeAccessibility(setA11ySettings)
+    return unsub
+  }, [])
+
+  // Now safe — isActive, handleClear, handleSave, showToast all defined above
   useVoiceCommands(a11ySettings.voiceCommands && isActive, {
     onClear:  handleClear,
     onUndo:   () => { canvasApiRef.current?.undo(); showToast('↶ Undo', '#818cf8') },
     onSave:   handleSave,
     onBrush:  (b) => { setActiveBrush(b); showToast(`🎨 ${b} brush`, '#a78bfa') },
   })
-
-  const isActive = camReady && modelReady
 
   return (
     <div className="relative w-screen h-screen bg-[#07070f] overflow-hidden">
@@ -108,7 +110,8 @@ export default function AirCanvas({ onExit }) {
       />
 
       {camReady && (
-        <div className="absolute inset-0 pointer-events-none"
+        <div
+          className="absolute inset-0 pointer-events-none"
           style={{ background: 'radial-gradient(ellipse at center, transparent 30%, rgba(7,7,15,0.8) 100%)' }}
         />
       )}
@@ -164,7 +167,9 @@ export default function AirCanvas({ onExit }) {
               {!camReady ? 'Starting camera...' : 'Loading hand tracking...'}
             </p>
             <p className="text-white/25 text-sm">
-              {!camReady ? 'Allow camera permission when prompted' : 'Downloading AI model, one moment...'}
+              {!camReady
+                ? 'Allow camera permission when prompted'
+                : 'Downloading AI model, one moment...'}
             </p>
           </div>
         </div>
@@ -172,23 +177,23 @@ export default function AirCanvas({ onExit }) {
 
       {camError && (
         <div className="absolute inset-0 flex items-center justify-center z-20">
-          <div className="rounded-3xl p-8 max-w-sm text-center"
-            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}>
+          <div
+            className="rounded-3xl p-8 max-w-sm text-center"
+            style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)' }}
+          >
             <div className="text-5xl mb-4">⚠️</div>
             <p className="text-white/70 text-sm">{camError}</p>
           </div>
         </div>
       )}
 
+      {/* Top HUD */}
       <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-6 py-4">
         <span className="text-white/70 font-bold tracking-wide text-sm">✦ Air Canvas</span>
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => {
-              canvasApiRef.current?.undo()
-              showToast('↶ Undo', '#818cf8')
-            }}
+            onClick={() => { canvasApiRef.current?.undo(); showToast('↶ Undo', '#818cf8') }}
             className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5"
           >
             ↶ Undo
@@ -205,7 +210,6 @@ export default function AirCanvas({ onExit }) {
           >
             🗑 Clear
           </button>
-
           <button
             onClick={() => setBrushPickerOpen(b => !b)}
             className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5"
@@ -216,25 +220,26 @@ export default function AirCanvas({ onExit }) {
           <button
             onClick={() => setAirKeyboardOpen(true)}
             className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5"
-          >          
+          >
             ⌨️ Air Type
           </button>
-
           <button
             onClick={() => setA11yOpen(true)}
             className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5"
           >
             ♿ Access
-          </button> 
-
+          </button>
         </div>
 
-        <button onClick={onExit}
-          className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5">
+        <button
+          onClick={onExit}
+          className="text-white/30 hover:text-white/60 text-sm px-4 py-2 rounded-full transition-all hover:bg-white/5"
+        >
           ✕ Exit
         </button>
       </div>
 
+      {/* Brush size indicator */}
       {isActive && (
         <div
           className="absolute left-6 top-1/2 -translate-y-1/2 z-30 flex flex-col items-center gap-3 px-3 py-4 rounded-2xl transition-all duration-300"
@@ -249,8 +254,10 @@ export default function AirCanvas({ onExit }) {
           >
             {resizeMode ? '✌️' : 'Brush'}
           </span>
-          <div className="relative w-1.5 h-24 rounded-full overflow-hidden"
-            style={{ background: 'rgba(255,255,255,0.08)' }}>
+          <div
+            className="relative w-1.5 h-24 rounded-full overflow-hidden"
+            style={{ background: 'rgba(255,255,255,0.08)' }}
+          >
             <div
               className="absolute bottom-0 w-full rounded-full transition-all duration-200"
               style={{
@@ -271,6 +278,7 @@ export default function AirCanvas({ onExit }) {
         </div>
       )}
 
+      {/* Voice listening indicator */}
       {a11ySettings.voiceCommands && isActive && (
         <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30">
           <div
@@ -287,17 +295,22 @@ export default function AirCanvas({ onExit }) {
         </div>
       )}
 
+      {/* Bottom hint */}
       {isActive && (
         <div className="absolute bottom-6 left-0 right-0 flex flex-col items-center gap-2 z-30 pointer-events-none">
           {clearProgress > 0 && (
-            <div className="flex items-center gap-2 px-4 py-2 rounded-full text-xs"
+            <div
+              className="flex items-center gap-2 px-4 py-2 rounded-full text-xs"
               style={{
                 background: 'rgba(52,211,153,0.12)',
                 border: '1px solid rgba(52,211,153,0.35)',
                 color: '#34d399',
               }}
             >
-              <div className="w-16 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(52,211,153,0.2)' }}>
+              <div
+                className="w-16 h-1 rounded-full overflow-hidden"
+                style={{ background: 'rgba(52,211,153,0.2)' }}
+              >
                 <div
                   className="h-full rounded-full transition-all duration-100"
                   style={{ width: `${clearProgress * 100}%`, background: '#34d399' }}
@@ -317,12 +330,13 @@ export default function AirCanvas({ onExit }) {
         </div>
       )}
 
+      {/* Air Keyboard */}
       {airKeyboardOpen && (
         <AirKeyboard
           handsRef={handsRef}
           isActive={isActive}
           onClose={() => setAirKeyboardOpen(false)}
-       />
+        />
       )}
 
     </div>
