@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import AirCanvas from './components/AirCanvas'
+import Scene3D from './components/Scene3D'
 
-// ── Self-drawing animated background canvas ────────────────────────────────
+// ── Self-drawing animated background canvas (fallback when WebGL is unavailable) ──
 function LiveBackground() {
   const canvasRef = useRef(null)
 
@@ -191,10 +192,17 @@ function LiveBackground() {
 
 // ── Main welcome screen ────────────────────────────────────────────────────
 export default function App() {
-  const [started,  setStarted]  = useState(false)
-  const [mounted,  setMounted]  = useState(false)
-  const [hovered,  setHovered]  = useState(false)
-  const [revealed, setRevealed] = useState(false)
+  const [started,      setStarted]      = useState(false)
+  const [mounted,      setMounted]      = useState(false)
+  const [hovered,      setHovered]      = useState(false)
+  const [pressed,      setPressed]      = useState(false)
+  const [revealed,     setRevealed]     = useState(false)
+  const [webglOK,      setWebglOK]      = useState(true)
+  const [reducedMotion, setReducedMotion] = useState(false)
+  const [hoverChip,    setHoverChip]    = useState(null)
+
+  const stageRef  = useRef(null)
+  const tiltFrame = useRef(null)
 
   useEffect(() => {
     const t1 = setTimeout(() => setMounted(true),  100)
@@ -202,13 +210,65 @@ export default function App() {
     return () => { clearTimeout(t1); clearTimeout(t2) }
   }, [])
 
+  // Track the person's reduced-motion preference live, not just on load
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
+    setReducedMotion(mq.matches)
+    const handle = (e) => setReducedMotion(e.matches)
+    if (mq.addEventListener) mq.addEventListener('change', handle)
+    else mq.addListener(handle)
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener('change', handle)
+      else mq.removeListener(handle)
+    }
+  }, [])
+
+  // Cursor-driven 3D tilt of the entire foreground stage — written directly
+  // to the DOM (not React state) so it stays smooth at mouse-move frequency.
+  // Skipped for touch devices and when reduced motion is requested.
+  useEffect(() => {
+    const canHover = typeof window.matchMedia === 'function'
+      && window.matchMedia('(hover: hover) and (pointer: fine)').matches
+    if (reducedMotion || !canHover) return undefined
+
+    function handleMove(e) {
+      if (tiltFrame.current) return
+      tiltFrame.current = requestAnimationFrame(() => {
+        tiltFrame.current = null
+        const nx = (e.clientX / window.innerWidth) * 2 - 1
+        const ny = (e.clientY / window.innerHeight) * 2 - 1
+        const el = stageRef.current
+        if (el) {
+          el.style.transform = `rotateX(${(-ny * 5.5).toFixed(2)}deg) rotateY(${(nx * 7.5).toFixed(2)}deg)`
+        }
+      })
+    }
+    window.addEventListener('pointermove', handleMove)
+    return () => {
+      window.removeEventListener('pointermove', handleMove)
+      if (tiltFrame.current) cancelAnimationFrame(tiltFrame.current)
+    }
+  }, [reducedMotion])
+
   if (started) return <AirCanvas onExit={() => setStarted(false)} />
+
+  const GESTURES = [
+    { icon: '🤏', label: 'Pinch — Draw',    color: '129,140,248' },
+    { icon: '✊', label: 'Fist — Erase',    color: '244,114,182' },
+    { icon: '🖐️', label: 'Palms — Clear',  color: '52,211,153'  },
+    { icon: '👐', label: 'Spread — Resize', color: '251,191,36'  },
+    { icon: '✌️✌️', label: 'Peace — Brush', color: '167,139,250' },
+  ]
 
   return (
     <div className="w-screen h-screen bg-[#030305] relative overflow-hidden">
 
-      {/* ── Live animated canvas background ── */}
-      <LiveBackground />
+      {/* ── Real 3D background: glowing ink-core + orbiting drawn light ── */}
+      {webglOK ? (
+        <Scene3D reducedMotion={reducedMotion} onUnsupported={() => setWebglOK(false)} />
+      ) : (
+        <LiveBackground />
+      )}
 
       {/* ── Dark center vignette to make text readable ── */}
       <div
@@ -216,218 +276,370 @@ export default function App() {
         style={{
           background: `
             radial-gradient(ellipse 55% 70% at 50% 50%,
-              rgba(3,3,5,0.75) 0%,
-              rgba(3,3,5,0.3) 60%,
+              rgba(3,3,5,0.72) 0%,
+              rgba(3,3,5,0.28) 60%,
               transparent 100%)
           `
         }}
       />
 
-      {/* ── Ghost DRAW text behind everything ── */}
-      <div
-        className="absolute inset-0 flex items-center justify-center pointer-events-none select-none"
-        style={{
-          opacity:    mounted ? 0.03 : 0,
-          transition: 'opacity 2s ease',
-        }}
-      >
-        <span
-          className="font-black tracking-tighter"
-          style={{
-            fontSize:       'clamp(160px, 22vw, 320px)',
-            color:          'transparent',
-            WebkitTextStroke: '2px rgba(255,255,255,1)',
-            lineHeight:     1,
-          }}
-        >
-          DRAW
-        </span>
-      </div>
-
-      {/* ── Center content ── */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
-
-        {/* Badge */}
+      {/* ── 3D perspective stage — everything below tilts toward the cursor as one connected scene ── */}
+      <div className="absolute inset-0" style={{ perspective: '1600px' }}>
         <div
-          className="flex items-center gap-2 px-4 py-2 rounded-full mb-8 text-xs font-semibold tracking-widest uppercase transition-all duration-700"
+          ref={stageRef}
+          className="absolute inset-0"
           style={{
-            opacity:   revealed ? 1 : 0,
-            transform: revealed ? 'translateY(0)' : 'translateY(12px)',
-            background: 'rgba(255,255,255,0.04)',
-            border:     '1px solid rgba(255,255,255,0.1)',
-            color:      'rgba(255,255,255,0.4)',
-            backdropFilter: 'blur(8px)',
+            transformStyle: 'preserve-3d',
+            transition: 'transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)',
+            willChange: 'transform',
           }}
         >
-          <span
-            className="w-1.5 h-1.5 rounded-full animate-pulse"
-            style={{ background: '#a78bfa', boxShadow: '0 0 6px #a78bfa' }}
-          />
-          Gesture · Powered · Art
-        </div>
 
-        {/* Main title */}
-        <div
-          className="text-center mb-6 transition-all duration-700"
-          style={{
-            opacity:         revealed ? 1 : 0,
-            transform:       revealed ? 'translateY(0) scale(1)' : 'translateY(20px) scale(0.97)',
-            transitionDelay: '100ms',
-          }}
-        >
-          <h1
-            className="font-black leading-none tracking-tighter block"
-            style={{
-              fontSize: 'clamp(64px, 9vw, 120px)',
-              color: '#ffffff',
-              textShadow: '0 0 80px rgba(255,255,255,0.15)',
-            }}
+          {/* Ghost DRAW text, extruded behind everything */}
+          <div
+            className="absolute inset-0 flex items-center justify-center pointer-events-none select-none"
+            style={{ transform: 'translateZ(-100px)' }}
           >
-            Air
-          </h1>
-          <h1
-            className="font-black leading-none tracking-tighter block"
-            style={{
-              fontSize: 'clamp(64px, 9vw, 120px)',
-              background: 'linear-gradient(135deg, #818cf8 0%, #a78bfa 30%, #e879f9 60%, #f472b6 100%)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor:  'transparent',
-              filter: 'drop-shadow(0 0 40px rgba(129,140,248,0.5))',
-            }}
-          >
-            Canvas
-          </h1>
-        </div>
-
-        {/* Tagline */}
-        <p
-          className="text-center text-white/40 mb-12 max-w-xs leading-relaxed transition-all duration-700"
-          style={{
-            fontSize:        '1rem',
-            opacity:         revealed ? 1 : 0,
-            transform:       revealed ? 'translateY(0)' : 'translateY(12px)',
-            transitionDelay: '200ms',
-          }}
-        >
-          Paint with your bare hands.<br />
-          No touch required.
-        </p>
-
-        {/* CTA button */}
-        <div
-          className="transition-all duration-700"
-          style={{
-            opacity:         revealed ? 1 : 0,
-            transform:       revealed ? 'translateY(0)' : 'translateY(12px)',
-            transitionDelay: '300ms',
-          }}
-        >
-          <button
-            onClick={() => setStarted(true)}
-            onMouseEnter={() => setHovered(true)}
-            onMouseLeave={() => setHovered(false)}
-            className="relative group overflow-hidden rounded-2xl font-bold text-white text-lg transition-all duration-300"
-            style={{
-              padding: '18px 56px',
-              background: hovered
-                ? 'linear-gradient(135deg, #4338ca, #7c3aed, #be185d)'
-                : 'linear-gradient(135deg, #6366f1, #8b5cf6, #ec4899)',
-              boxShadow: hovered
-                ? '0 0 80px rgba(99,102,241,0.7), 0 0 120px rgba(236,72,153,0.4), 0 20px 60px rgba(0,0,0,0.6)'
-                : '0 0 40px rgba(99,102,241,0.4), 0 0 80px rgba(236,72,153,0.2), 0 10px 40px rgba(0,0,0,0.5)',
-              transform: hovered ? 'translateY(-4px) scale(1.04)' : 'translateY(0) scale(1)',
-              letterSpacing: '0.02em',
-            }}
-          >
-            {/* Animated shimmer */}
             <div
-              className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
               style={{
-                background: 'linear-gradient(105deg, transparent 25%, rgba(255,255,255,0.12) 50%, transparent 75%)',
-                animation: hovered ? 'shimmer 0.6s ease' : 'none',
+                position:   'relative',
+                opacity:    mounted ? 1 : 0,
+                transition: 'opacity 2s ease',
+              }}
+            >
+              {[1, 2, 3, 4, 5, 6].map(i => (
+                <span
+                  key={i}
+                  aria-hidden="true"
+                  className="font-black tracking-tighter block"
+                  style={{
+                    position: 'absolute', top: 0, left: 0,
+                    fontFamily: 'var(--font-display)',
+                    fontSize:   'clamp(160px, 22vw, 320px)',
+                    lineHeight: 1,
+                    color:      `rgba(76,45,160,${0.07 - i * 0.009})`,
+                    transform:  `translate(${i * 1.6}px, ${i * 1.6}px)`,
+                  }}
+                >
+                  DRAW
+                </span>
+              ))}
+              <span
+                className="font-black tracking-tighter block"
+                style={{
+                  position:   'relative',
+                  fontFamily: 'var(--font-display)',
+                  fontSize:   'clamp(160px, 22vw, 320px)',
+                  lineHeight: 1,
+                  color:      'transparent',
+                  WebkitTextStroke: '2px rgba(255,255,255,1)',
+                }}
+              >
+                DRAW
+              </span>
+            </div>
+          </div>
+
+          {/* Center content */}
+          <div
+            className="absolute inset-0 flex flex-col items-center justify-center z-10"
+            style={{ transformStyle: 'preserve-3d' }}
+          >
+
+            {/* Badge */}
+            <div
+              style={{
+                transformStyle: 'preserve-3d',
+                animation: reducedMotion ? 'none' : 'gentleFloat 7s ease-in-out infinite',
+                animationDelay: '0s',
+              }}
+            >
+              <div
+                className="flex items-center gap-2 px-4 py-2 rounded-full mb-8 text-xs font-semibold tracking-widest uppercase"
+                style={{
+                  fontFamily: 'var(--font-body)',
+                  opacity:    revealed ? 1 : 0,
+                  transform:  `${revealed ? 'translateY(0)' : 'translateY(12px)'} translateZ(25px)`,
+                  transition: 'opacity 0.7s ease, transform 0.7s ease',
+                  background: 'rgba(255,255,255,0.04)',
+                  border:     '1px solid rgba(255,255,255,0.1)',
+                  color:      'rgba(255,255,255,0.4)',
+                  backdropFilter: 'blur(8px)',
+                }}
+              >
+                <span
+                  className="w-1.5 h-1.5 rounded-full animate-pulse"
+                  style={{ background: '#a78bfa', boxShadow: '0 0 6px #a78bfa' }}
+                />
+                Gesture · Powered · Art
+              </div>
+            </div>
+
+            {/* Main title */}
+            <div
+              style={{
+                transformStyle: 'preserve-3d',
+                animation: reducedMotion ? 'none' : 'gentleFloat 7s ease-in-out infinite',
+                animationDelay: '-2.3s',
+              }}
+            >
+              <div
+                className="text-center mb-6"
+                style={{
+                  opacity:         revealed ? 1 : 0,
+                  transform:       `${revealed ? 'translateY(0) scale(1)' : 'translateY(20px) scale(0.97)'} translateZ(60px)`,
+                  transition:      'opacity 0.7s ease, transform 0.7s ease',
+                  transitionDelay: '100ms',
+                }}
+              >
+                <h1
+                  className="leading-none tracking-tighter block"
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontWeight: 800,
+                    fontSize:   'clamp(56px, 8vw, 108px)',
+                    color:      '#ffffff',
+                    textShadow: '0 0 80px rgba(255,255,255,0.15)',
+                  }}
+                >
+                  Air
+                </h1>
+                <h1
+                  className="leading-none tracking-tighter block"
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontWeight: 800,
+                    fontSize:   'clamp(56px, 8vw, 108px)',
+                    background: 'linear-gradient(135deg, #818cf8 0%, #a78bfa 30%, #e879f9 60%, #f472b6 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor:  'transparent',
+                    filter: 'drop-shadow(0 0 40px rgba(129,140,248,0.5))',
+                  }}
+                >
+                  Canvas
+                </h1>
+              </div>
+            </div>
+
+            {/* Tagline */}
+            <div
+              style={{
+                transformStyle: 'preserve-3d',
+                animation: reducedMotion ? 'none' : 'gentleFloat 7s ease-in-out infinite',
+                animationDelay: '-4.6s',
+              }}
+            >
+              <p
+                className="text-center text-white/40 mb-12 max-w-xs leading-relaxed"
+                style={{
+                  fontFamily:      'var(--font-body)',
+                  fontSize:        '1rem',
+                  opacity:         revealed ? 1 : 0,
+                  transform:       `${revealed ? 'translateY(0)' : 'translateY(12px)'} translateZ(30px)`,
+                  transition:      'opacity 0.7s ease, transform 0.7s ease',
+                  transitionDelay: '200ms',
+                }}
+              >
+                Paint with your bare hands.<br />
+                No touch required.
+              </p>
+            </div>
+
+            {/* CTA button — a genuinely extruded 3D object, not a flat rectangle */}
+            <div
+              style={{
+                transformStyle: 'preserve-3d',
+                animation: reducedMotion ? 'none' : 'gentleFloat 7s ease-in-out infinite',
+                animationDelay: '-1.1s',
+              }}
+            >
+              <div
+                style={{
+                  opacity:         revealed ? 1 : 0,
+                  transform:       `${revealed ? 'translateY(0)' : 'translateY(12px)'} translateZ(85px)`,
+                  transition:      'opacity 0.7s ease, transform 0.7s ease',
+                  transitionDelay: '300ms',
+                }}
+              >
+                <div style={{ position: 'relative', perspective: '500px' }}>
+
+                  {/* Contact shadow — sells the "floating object" illusion */}
+                  <div
+                    style={{
+                      position:  'absolute',
+                      left:      '50%',
+                      bottom:    pressed ? '-2px' : hovered ? '-14px' : '-8px',
+                      width:     '72%',
+                      height:    '16px',
+                      transform: 'translateX(-50%)',
+                      background: 'rgba(0,0,0,0.55)',
+                      borderRadius: '50%',
+                      filter:    'blur(10px)',
+                      opacity:   pressed ? 0.55 : hovered ? 0.3 : 0.45,
+                      transition: 'all 0.25s ease',
+                    }}
+                  />
+
+                  <button
+                    onClick={() => setStarted(true)}
+                    onMouseEnter={() => setHovered(true)}
+                    onMouseLeave={() => { setHovered(false); setPressed(false) }}
+                    onMouseDown={() => setPressed(true)}
+                    onMouseUp={() => setPressed(false)}
+                    onTouchStart={() => setPressed(true)}
+                    onTouchEnd={() => setPressed(false)}
+                    className="relative group block font-bold text-white text-lg"
+                    style={{
+                      fontFamily: 'var(--font-display)',
+                      border: 'none',
+                      background: 'transparent',
+                      padding: 0,
+                      cursor: 'pointer',
+                      borderRadius: '20px',
+                      transformStyle: 'preserve-3d',
+                      letterSpacing: '0.01em',
+                    }}
+                  >
+                    {/* Base/side face — the "block" the front face floats above */}
+                    <span
+                      aria-hidden="true"
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        borderRadius: 'inherit',
+                        background: 'linear-gradient(135deg, #2e1065, #500724)',
+                        transform: 'translateZ(0px) translateY(5px)',
+                      }}
+                    />
+
+                    {/* Front face — lifts on hover, presses down on click */}
+                    <span
+                      className="relative overflow-hidden flex items-center gap-3"
+                      style={{
+                        borderRadius: 'inherit',
+                        padding: '18px 56px',
+                        background: hovered
+                          ? 'linear-gradient(135deg, #4338ca, #7c3aed, #be185d)'
+                          : 'linear-gradient(135deg, #6366f1, #8b5cf6, #ec4899)',
+                        boxShadow: hovered
+                          ? '0 0 80px rgba(99,102,241,0.7), 0 0 120px rgba(236,72,153,0.4)'
+                          : '0 0 40px rgba(99,102,241,0.4), 0 0 80px rgba(236,72,153,0.2)',
+                        transform: `translateZ(${pressed ? 2 : hovered ? 16 : 8}px)`,
+                        transition: 'transform 0.18s ease, background 0.3s ease, box-shadow 0.3s ease',
+                      }}
+                    >
+                      {/* Shimmer sweep */}
+                      <span
+                        className="absolute inset-0 opacity-0 group-hover:opacity-100"
+                        style={{
+                          background: 'linear-gradient(105deg, transparent 25%, rgba(255,255,255,0.14) 50%, transparent 75%)',
+                          animation: hovered ? 'shimmer 0.6s ease' : 'none',
+                          transition: 'opacity 0.5s ease',
+                        }}
+                      />
+                      <span className="relative z-10 flex items-center gap-3">
+                        <span>Start Drawing</span>
+                        <span
+                          className="text-xl"
+                          style={{
+                            transform: hovered ? 'translateX(6px)' : 'translateX(0)',
+                            transition: 'transform 0.3s ease',
+                            display: 'inline-block',
+                          }}
+                        >
+                          →
+                        </span>
+                      </span>
+                    </span>
+                  </button>
+                </div>
+
+                <p
+                  className="text-center text-white/18 text-xs mt-4 tracking-wide"
+                  style={{ fontFamily: 'var(--font-body)' }}
+                >
+                  Camera access required · Works in Chrome &amp; Edge
+                </p>
+              </div>
+            </div>
+
+          </div>
+
+          {/* ── Gesture hints — bottom strip, floating glass chips ── */}
+          <div
+            className="absolute bottom-0 left-0 right-0 z-10"
+            style={{
+              opacity:         revealed ? 1 : 0,
+              transform:       'translateZ(20px)',
+              transition:      'opacity 0.7s ease',
+              transitionDelay: '500ms',
+            }}
+          >
+            <div
+              className="h-px mx-8 mb-4"
+              style={{
+                background: 'linear-gradient(90deg, transparent, rgba(129,140,248,0.3), rgba(244,114,182,0.3), transparent)',
               }}
             />
-            <span className="relative z-10 flex items-center gap-3">
-              <span>Start Drawing</span>
-              <span
-                className="text-xl transition-transform duration-300"
-                style={{ transform: hovered ? 'translateX(6px)' : 'translateX(0)' }}
-              >
-                →
-              </span>
-            </span>
-          </button>
 
-          <p className="text-center text-white/18 text-xs mt-4 tracking-wide">
-            Camera access required · Works in Chrome &amp; Edge
-          </p>
-        </div>
-
-      </div>
-
-      {/* ── Gesture hints — bottom strip ── */}
-      <div
-        className="absolute bottom-0 left-0 right-0 z-10 transition-all duration-700"
-        style={{
-          opacity:         revealed ? 1 : 0,
-          transitionDelay: '500ms',
-        }}
-      >
-        {/* Divider line */}
-        <div
-          className="h-px mx-8 mb-4"
-          style={{
-            background: 'linear-gradient(90deg, transparent, rgba(129,140,248,0.3), rgba(244,114,182,0.3), transparent)',
-          }}
-        />
-
-        <div className="flex items-center justify-center gap-8 pb-6">
-          {[
-            { icon: '🤏', label: 'Pinch — Draw',    color: '#818cf8' },
-            { icon: '✊', label: 'Fist — Erase',    color: '#f472b6' },
-            { icon: '🖐️', label: 'Palms — Clear',  color: '#34d399' },
-            { icon: '👐', label: 'Spread — Resize', color: '#fbbf24' },
-            { icon: '✌️✌️', label: 'Peace — Brush', color: '#a78bfa' },
-          ].map((g, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <span className="text-base" style={{ filter: `drop-shadow(0 0 4px ${g.color})` }}>
-                {g.icon}
-              </span>
-              <span
-                className="text-xs font-medium"
-                style={{ color: 'rgba(255,255,255,0.35)' }}
-              >
-                {g.label}
-              </span>
-              {i < 4 && (
-                <div className="w-px h-3 ml-3" style={{ background: 'rgba(255,255,255,0.08)' }} />
-              )}
+            <div className="flex items-center justify-center gap-3 pb-6 flex-wrap px-4">
+              {GESTURES.map((g, i) => (
+                <div
+                  key={i}
+                  onMouseEnter={() => setHoverChip(i)}
+                  onMouseLeave={() => setHoverChip(null)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl"
+                  style={{
+                    fontFamily: 'var(--font-body)',
+                    background: `rgba(${g.color}, ${hoverChip === i ? 0.12 : 0.05})`,
+                    border:     `1px solid rgba(${g.color}, ${hoverChip === i ? 0.4 : 0.16})`,
+                    transform:  hoverChip === i ? 'translateY(-3px)' : 'translateY(0)',
+                    transition: 'all 0.25s ease',
+                  }}
+                >
+                  <span className="text-base" style={{ filter: `drop-shadow(0 0 4px rgb(${g.color}))` }}>
+                    {g.icon}
+                  </span>
+                  <span
+                    className="text-xs font-medium whitespace-nowrap"
+                    style={{ color: hoverChip === i ? `rgb(${g.color})` : 'rgba(255,255,255,0.4)' }}
+                  >
+                    {g.label}
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </div>
+          </div>
 
-      {/* ── Top corner watermark ── */}
-      <div
-        className="absolute top-6 right-6 z-10 transition-all duration-700"
-        style={{
-          opacity:         revealed ? 1 : 0,
-          transitionDelay: '700ms',
-        }}
-      >
-        <div className="flex items-center gap-2">
+          {/* ── Top corner watermark ── */}
           <div
-            className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold"
+            className="absolute top-6 right-6 z-10"
             style={{
-              background:  'linear-gradient(135deg, #6366f1, #ec4899)',
-              boxShadow:   '0 0 10px rgba(99,102,241,0.4)',
+              opacity:         revealed ? 1 : 0,
+              transform:       'translateZ(20px)',
+              transition:      'opacity 0.7s ease',
+              transitionDelay: '700ms',
             }}
           >
-            ✦
+            <div className="flex items-center gap-2">
+              <div
+                className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold"
+                style={{
+                  background: 'linear-gradient(135deg, #6366f1, #ec4899)',
+                  boxShadow:  '0 0 10px rgba(99,102,241,0.4), inset 0 1px 1px rgba(255,255,255,0.4)',
+                }}
+              >
+                ✦
+              </div>
+              <span
+                className="text-white/20 text-xs font-medium tracking-widest uppercase"
+                style={{ fontFamily: 'var(--font-display)' }}
+              >
+                Air Canvas
+              </span>
+            </div>
           </div>
-          <span className="text-white/20 text-xs font-medium tracking-widest uppercase">
-            Air Canvas
-          </span>
+
         </div>
       </div>
 
