@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+:root {
+  --font-display: 'Unbounded', system-ui, sans-serif;
+  --font-body:    'Manrope', 'Inter', system-ui, sans-serif;
+}
+
 *, *::before, *::after {
   margin: 0;
   padding: 0;
@@ -9,9 +14,19 @@
 body {
   background: #07070f;
   overflow: hidden;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-body);
   color: white;
 }
 
 /* Custom scrollbar just in case */
 ::-webkit-scrollbar { width: 0; }
+
+@keyframes shimmer {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
+
+@keyframes gentleFloat {
+  0%, 100% { transform: translateY(0px); }
+  50%      { transform: translateY(-8px); }
+}
