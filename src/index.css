@@ -3,6 +3,7 @@
 :root {
   --font-display: 'Unbounded', system-ui, sans-serif;
   --font-body:    'Manrope', 'Inter', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', 'SF Mono', monospace;
 }
 
 *, *::before, *::after {
@@ -26,7 +27,27 @@ body {
   100% { transform: translateX(120%); }
 }
 
-@keyframes gentleFloat {
-  0%, 100% { transform: translateY(0px); }
-  50%      { transform: translateY(-8px); }
+@keyframes shutterFlash {
+  0%   { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+
+@keyframes standbyPulse {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 1; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Faint instrument scanlines over the whole viewport */
+.scanlines {
+  background-image: repeating-linear-gradient(
+    to bottom,
+    rgba(255,255,255,0.025) 0px,
+    rgba(255,255,255,0.025) 1px,
+    transparent 1px,
+    transparent 3px
+  );
 }
