@@ -190,27 +190,66 @@ function LiveBackground() {
   )
 }
 
+// ── Reusable corner bracket — draws itself in on mount, like a camera
+//    acquiring focus. One path, mirrored into all four corners via rotation.
+function CornerBracket({ corner, revealed }) {
+  const pos = {
+    'top-left':     { top: '24px',    left: '24px',   transform: 'rotate(0deg)'    },
+    'top-right':    { top: '24px',    right: '24px',  transform: 'rotate(90deg)'   },
+    'bottom-right': { bottom: '24px', right: '24px',  transform: 'rotate(180deg)'  },
+    'bottom-left':  { bottom: '24px', left: '24px',   transform: 'rotate(270deg)'  },
+  }[corner]
+
+  return (
+    <svg
+      width="30" height="30" viewBox="0 0 30 30"
+      style={{ position: 'absolute', ...pos }}
+      aria-hidden="true"
+    >
+      <path
+        d="M 1 29 L 1 1 L 29 1"
+        fill="none"
+        stroke="rgba(255,255,255,0.32)"
+        strokeWidth="1.5"
+        strokeDasharray="56"
+        strokeDashoffset={revealed ? 0 : 56}
+        style={{ transition: 'stroke-dashoffset 1.1s cubic-bezier(0.16, 1, 0.3, 1)' }}
+      />
+    </svg>
+  )
+}
+
 // ── Main welcome screen ────────────────────────────────────────────────────
 export default function App() {
-  const [started,      setStarted]      = useState(false)
-  const [mounted,      setMounted]      = useState(false)
-  const [hovered,      setHovered]      = useState(false)
-  const [pressed,      setPressed]      = useState(false)
-  const [revealed,     setRevealed]     = useState(false)
-  const [webglOK,      setWebglOK]      = useState(true)
+  const [started,       setStarted]       = useState(false)
+  const [revealed,      setRevealed]      = useState(false)
+  const [webglOK,       setWebglOK]       = useState(true)
   const [reducedMotion, setReducedMotion] = useState(false)
-  const [hoverChip,    setHoverChip]    = useState(null)
+  const [hoverChip,     setHoverChip]     = useState(null)
+  const [hoveredIris,   setHoveredIris]   = useState(false)
+  const [clickPulse,    setClickPulse]    = useState(0)
+  const [clock,         setClock]         = useState('')
 
-  const stageRef  = useRef(null)
-  const tiltFrame = useRef(null)
+  const reticleRef = useRef(null)
+  const rafRef      = useRef(null)
 
   useEffect(() => {
-    const t1 = setTimeout(() => setMounted(true),  100)
-    const t2 = setTimeout(() => setRevealed(true), 600)
-    return () => { clearTimeout(t1); clearTimeout(t2) }
+    const t = setTimeout(() => setRevealed(true), 250)
+    return () => clearTimeout(t)
   }, [])
 
-  // Track the person's reduced-motion preference live, not just on load
+  // Live HUD clock — a real running instrument, not a static mock
+  useEffect(() => {
+    function tick() {
+      const d = new Date()
+      setClock(d.toTimeString().slice(0, 8))
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Track reduced-motion preference live
   useEffect(() => {
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)')
     setReducedMotion(mq.matches)
@@ -223,45 +262,50 @@ export default function App() {
     }
   }, [])
 
-  // Cursor-driven 3D tilt of the entire foreground stage — written directly
-  // to the DOM (not React state) so it stays smooth at mouse-move frequency.
-  // Skipped for touch devices and when reduced motion is requested.
+  // Reticle that drifts toward the cursor — a focus point tracking attention,
+  // not decoration. Skipped for touch devices and reduced motion.
   useEffect(() => {
     const canHover = typeof window.matchMedia === 'function'
       && window.matchMedia('(hover: hover) and (pointer: fine)').matches
     if (reducedMotion || !canHover) return undefined
 
+    let tx = window.innerWidth / 2
+    let ty = window.innerHeight / 2
+    let cx = tx, cy = ty
+
     function handleMove(e) {
-      if (tiltFrame.current) return
-      tiltFrame.current = requestAnimationFrame(() => {
-        tiltFrame.current = null
-        const nx = (e.clientX / window.innerWidth) * 2 - 1
-        const ny = (e.clientY / window.innerHeight) * 2 - 1
-        const el = stageRef.current
-        if (el) {
-          el.style.transform = `rotateX(${(-ny * 5.5).toFixed(2)}deg) rotateY(${(nx * 7.5).toFixed(2)}deg)`
-        }
-      })
+      tx = e.clientX
+      ty = e.clientY
     }
     window.addEventListener('pointermove', handleMove)
+
+    function loop() {
+      cx += (tx - cx) * 0.12
+      cy += (ty - cy) * 0.12
+      const el = reticleRef.current
+      if (el) el.style.transform = `translate(${cx - 14}px, ${cy - 14}px)`
+      rafRef.current = requestAnimationFrame(loop)
+    }
+    rafRef.current = requestAnimationFrame(loop)
+
     return () => {
       window.removeEventListener('pointermove', handleMove)
-      if (tiltFrame.current) cancelAnimationFrame(tiltFrame.current)
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
     }
   }, [reducedMotion])
 
   if (started) return <AirCanvas onExit={() => setStarted(false)} />
 
   const GESTURES = [
-    { icon: '🤏', label: 'Pinch — Draw',    color: '129,140,248' },
-    { icon: '✊', label: 'Fist — Erase',    color: '244,114,182' },
-    { icon: '🖐️', label: 'Palms — Clear',  color: '52,211,153'  },
-    { icon: '👐', label: 'Spread — Resize', color: '251,191,36'  },
-    { icon: '✌️✌️', label: 'Peace — Brush', color: '167,139,250' },
+    { n: '01', icon: '🤏', label: 'PINCH',  action: 'Draw',   color: '129,140,248' },
+    { n: '02', icon: '✊', label: 'FIST',   action: 'Erase',  color: '244,114,182' },
+    { n: '03', icon: '🖐️', label: 'PALM',   action: 'Clear',  color: '52,211,153'  },
+    { n: '04', icon: '👐', label: 'SPREAD', action: 'Resize', color: '251,191,36'  },
+    { n: '05', icon: '✌️✌️', label: 'PEACE',  action: 'Brush',  color: '167,139,250' },
   ]
 
   return (
-    <div className="w-screen h-screen bg-[#030305] relative overflow-hidden">
+    <div className="w-screen h-screen bg-[#030305] relative overflow-hidden scanlines">
 
       {/* ── Real 3D background: glowing ink-core + orbiting drawn light ── */}
       {webglOK ? (
@@ -270,376 +314,252 @@ export default function App() {
         <LiveBackground />
       )}
 
-      {/* ── Dark center vignette to make text readable ── */}
+      {/* ── Edge vignette — keeps HUD chrome legible without flattening the scene ── */}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
           background: `
-            radial-gradient(ellipse 55% 70% at 50% 50%,
-              rgba(3,3,5,0.72) 0%,
-              rgba(3,3,5,0.28) 60%,
-              transparent 100%)
+            linear-gradient(to top, rgba(3,3,5,0.75) 0%, rgba(3,3,5,0.15) 30%, transparent 55%),
+            linear-gradient(to right, rgba(3,3,5,0.35) 0%, transparent 30%),
+            radial-gradient(ellipse 80% 60% at 50% 50%, transparent 50%, rgba(3,3,5,0.4) 100%)
           `
         }}
       />
 
-      {/* ── 3D perspective stage — everything below tilts toward the cursor as one connected scene ── */}
-      <div className="absolute inset-0" style={{ perspective: '1600px' }}>
+      {/* ── Corner brackets — focus-acquired framing ── */}
+      <CornerBracket corner="top-left"     revealed={revealed} />
+      <CornerBracket corner="top-right"    revealed={revealed} />
+      <CornerBracket corner="bottom-left"  revealed={revealed} />
+      <CornerBracket corner="bottom-right" revealed={revealed} />
+
+      {/* ── Cursor reticle ── */}
+      <div
+        ref={reticleRef}
+        className="absolute top-0 left-0 pointer-events-none hidden md:block"
+        style={{ width: 28, height: 28, opacity: revealed ? 0.5 : 0, transition: 'opacity 0.8s ease' }}
+        aria-hidden="true"
+      >
+        <svg width="28" height="28" viewBox="0 0 28 28">
+          <circle cx="14" cy="14" r="9" fill="none" stroke="rgba(255,255,255,0.5)" strokeWidth="1" />
+          <line x1="14" y1="0" x2="14" y2="6" stroke="rgba(255,255,255,0.5)" strokeWidth="1" />
+          <line x1="14" y1="22" x2="14" y2="28" stroke="rgba(255,255,255,0.5)" strokeWidth="1" />
+          <line x1="0" y1="14" x2="6" y2="14" stroke="rgba(255,255,255,0.5)" strokeWidth="1" />
+          <line x1="22" y1="14" x2="28" y2="14" stroke="rgba(255,255,255,0.5)" strokeWidth="1" />
+        </svg>
+      </div>
+
+      {/* ── Top HUD bar ── */}
+      <div
+        className="absolute top-0 left-0 right-0 flex items-center justify-between px-5 sm:px-10 py-6 sm:py-7"
+        style={{
+          opacity: revealed ? 1 : 0,
+          transform: revealed ? 'translateY(0)' : 'translateY(-8px)',
+          transition: 'opacity 0.8s ease, transform 0.8s ease',
+          fontFamily: 'var(--font-mono)',
+        }}
+      >
+        <div className="flex items-center gap-3">
+          <span
+            className="w-1.5 h-1.5 rounded-full"
+            style={{ background: '#34d399', animation: reducedMotion ? 'none' : 'standbyPulse 2.2s ease-in-out infinite' }}
+          />
+          <span className="text-[10px] sm:text-xs tracking-widest" style={{ color: 'rgba(255,255,255,0.45)' }}>
+            SYSTEM READY
+          </span>
+        </div>
+        <div className="flex items-center gap-3 sm:gap-5 text-[10px] sm:text-xs tracking-widest" style={{ color: 'rgba(255,255,255,0.25)' }}>
+          <span>{clock}</span>
+          <span className="hidden sm:inline" style={{ color: 'rgba(255,255,255,0.15)' }}>·</span>
+          <span className="hidden sm:inline">AIR.CANVAS / v2.4</span>
+        </div>
+      </div>
+
+      {/* ── Right edge: gesture legend ── */}
+      <div
+        className="absolute right-10 top-1/2 hidden lg:flex flex-col gap-3"
+        style={{
+          transform: revealed ? 'translateY(-50%) translateX(0)' : 'translateY(-50%) translateX(12px)',
+          opacity: revealed ? 1 : 0,
+          transition: 'opacity 0.8s ease 0.3s, transform 0.8s ease 0.3s',
+        }}
+      >
+        <span
+          className="text-[10px] tracking-[0.25em] mb-1"
+          style={{ fontFamily: 'var(--font-mono)', color: 'rgba(255,255,255,0.25)' }}
+        >
+          CONTROLS
+        </span>
+        {GESTURES.map((g, i) => (
+          <div
+            key={i}
+            onMouseEnter={() => setHoverChip(i)}
+            onMouseLeave={() => setHoverChip(null)}
+            className="flex items-center gap-3 pl-3 pr-4 py-2 rounded-lg"
+            style={{
+              background: `rgba(${g.color}, ${hoverChip === i ? 0.1 : 0.03})`,
+              border: `1px solid rgba(${g.color}, ${hoverChip === i ? 0.45 : 0.12})`,
+              transform: hoverChip === i ? 'translateX(-4px)' : 'translateX(0)',
+              transition: 'all 0.25s ease',
+              cursor: 'default',
+            }}
+          >
+            <span
+              className="text-[10px] tabular-nums"
+              style={{ fontFamily: 'var(--font-mono)', color: hoverChip === i ? `rgb(${g.color})` : 'rgba(255,255,255,0.25)' }}
+            >
+              {g.n}
+            </span>
+            <span className="text-base" style={{ filter: `drop-shadow(0 0 4px rgb(${g.color}))` }}>
+              {g.icon}
+            </span>
+            <div className="flex flex-col leading-tight">
+              <span
+                className="text-[11px] font-semibold tracking-wide"
+                style={{ fontFamily: 'var(--font-mono)', color: hoverChip === i ? `rgb(${g.color})` : 'rgba(255,255,255,0.55)' }}
+              >
+                {g.label}
+              </span>
+              <span className="text-[10px]" style={{ color: 'rgba(255,255,255,0.3)' }}>
+                {g.action}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* ── Bottom-left: wordmark anchor (centered/stacked on mobile, corner-anchored on desktop) ── */}
+      <div className="absolute left-1/2 -translate-x-1/2 bottom-56 text-center px-6 md:left-14 md:translate-x-0 md:bottom-16 md:text-left md:px-0 max-w-md">
         <div
-          ref={stageRef}
-          className="absolute inset-0"
           style={{
-            transformStyle: 'preserve-3d',
-            transition: 'transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)',
-            willChange: 'transform',
+            opacity: revealed ? 1 : 0,
+            transform: revealed ? 'translateY(0)' : 'translateY(16px)',
+            transition: 'opacity 0.8s ease 0.15s, transform 0.8s ease 0.15s',
           }}
         >
-
-          {/* Ghost DRAW text, extruded behind everything */}
-          <div
-            className="absolute inset-0 flex items-center justify-center pointer-events-none select-none"
-            style={{ transform: 'translateZ(-100px)' }}
+          <h1
+            className="leading-[0.92] tracking-tighter"
+            style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: 'clamp(44px, 7vw, 92px)', color: '#fff' }}
           >
-            <div
-              style={{
-                position:   'relative',
-                opacity:    mounted ? 1 : 0,
-                transition: 'opacity 2s ease',
-              }}
-            >
-              {[1, 2, 3, 4, 5, 6].map(i => (
-                <span
-                  key={i}
-                  aria-hidden="true"
-                  className="font-black tracking-tighter block"
-                  style={{
-                    position: 'absolute', top: 0, left: 0,
-                    fontFamily: 'var(--font-display)',
-                    fontSize:   'clamp(160px, 22vw, 320px)',
-                    lineHeight: 1,
-                    color:      `rgba(76,45,160,${0.07 - i * 0.009})`,
-                    transform:  `translate(${i * 1.6}px, ${i * 1.6}px)`,
-                  }}
-                >
-                  DRAW
-                </span>
-              ))}
-              <span
-                className="font-black tracking-tighter block"
-                style={{
-                  position:   'relative',
-                  fontFamily: 'var(--font-display)',
-                  fontSize:   'clamp(160px, 22vw, 320px)',
-                  lineHeight: 1,
-                  color:      'transparent',
-                  WebkitTextStroke: '2px rgba(255,255,255,1)',
-                }}
-              >
-                DRAW
-              </span>
-            </div>
-          </div>
-
-          {/* Center content */}
-          <div
-            className="absolute inset-0 flex flex-col items-center justify-center z-10"
-            style={{ transformStyle: 'preserve-3d' }}
-          >
-
-            {/* Badge */}
-            <div
-              style={{
-                transformStyle: 'preserve-3d',
-                animation: reducedMotion ? 'none' : 'gentleFloat 7s ease-in-out infinite',
-                animationDelay: '0s',
-              }}
-            >
-              <div
-                className="flex items-center gap-2 px-4 py-2 rounded-full mb-8 text-xs font-semibold tracking-widest uppercase"
-                style={{
-                  fontFamily: 'var(--font-body)',
-                  opacity:    revealed ? 1 : 0,
-                  transform:  `${revealed ? 'translateY(0)' : 'translateY(12px)'} translateZ(25px)`,
-                  transition: 'opacity 0.7s ease, transform 0.7s ease',
-                  background: 'rgba(255,255,255,0.04)',
-                  border:     '1px solid rgba(255,255,255,0.1)',
-                  color:      'rgba(255,255,255,0.4)',
-                  backdropFilter: 'blur(8px)',
-                }}
-              >
-                <span
-                  className="w-1.5 h-1.5 rounded-full animate-pulse"
-                  style={{ background: '#a78bfa', boxShadow: '0 0 6px #a78bfa' }}
-                />
-                Gesture · Powered · Art
-              </div>
-            </div>
-
-            {/* Main title */}
-            <div
-              style={{
-                transformStyle: 'preserve-3d',
-                animation: reducedMotion ? 'none' : 'gentleFloat 7s ease-in-out infinite',
-                animationDelay: '-2.3s',
-              }}
-            >
-              <div
-                className="text-center mb-6"
-                style={{
-                  opacity:         revealed ? 1 : 0,
-                  transform:       `${revealed ? 'translateY(0) scale(1)' : 'translateY(20px) scale(0.97)'} translateZ(60px)`,
-                  transition:      'opacity 0.7s ease, transform 0.7s ease',
-                  transitionDelay: '100ms',
-                }}
-              >
-                <h1
-                  className="leading-none tracking-tighter block"
-                  style={{
-                    fontFamily: 'var(--font-display)',
-                    fontWeight: 800,
-                    fontSize:   'clamp(56px, 8vw, 108px)',
-                    color:      '#ffffff',
-                    textShadow: '0 0 80px rgba(255,255,255,0.15)',
-                  }}
-                >
-                  Air
-                </h1>
-                <h1
-                  className="leading-none tracking-tighter block"
-                  style={{
-                    fontFamily: 'var(--font-display)',
-                    fontWeight: 800,
-                    fontSize:   'clamp(56px, 8vw, 108px)',
-                    background: 'linear-gradient(135deg, #818cf8 0%, #a78bfa 30%, #e879f9 60%, #f472b6 100%)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor:  'transparent',
-                    filter: 'drop-shadow(0 0 40px rgba(129,140,248,0.5))',
-                  }}
-                >
-                  Canvas
-                </h1>
-              </div>
-            </div>
-
-            {/* Tagline */}
-            <div
-              style={{
-                transformStyle: 'preserve-3d',
-                animation: reducedMotion ? 'none' : 'gentleFloat 7s ease-in-out infinite',
-                animationDelay: '-4.6s',
-              }}
-            >
-              <p
-                className="text-center text-white/40 mb-12 max-w-xs leading-relaxed"
-                style={{
-                  fontFamily:      'var(--font-body)',
-                  fontSize:        '1rem',
-                  opacity:         revealed ? 1 : 0,
-                  transform:       `${revealed ? 'translateY(0)' : 'translateY(12px)'} translateZ(30px)`,
-                  transition:      'opacity 0.7s ease, transform 0.7s ease',
-                  transitionDelay: '200ms',
-                }}
-              >
-                Paint with your bare hands.<br />
-                No touch required.
-              </p>
-            </div>
-
-            {/* CTA button — a genuinely extruded 3D object, not a flat rectangle */}
-            <div
-              style={{
-                transformStyle: 'preserve-3d',
-                animation: reducedMotion ? 'none' : 'gentleFloat 7s ease-in-out infinite',
-                animationDelay: '-1.1s',
-              }}
-            >
-              <div
-                style={{
-                  opacity:         revealed ? 1 : 0,
-                  transform:       `${revealed ? 'translateY(0)' : 'translateY(12px)'} translateZ(85px)`,
-                  transition:      'opacity 0.7s ease, transform 0.7s ease',
-                  transitionDelay: '300ms',
-                }}
-              >
-                <div style={{ position: 'relative', perspective: '500px' }}>
-
-                  {/* Contact shadow — sells the "floating object" illusion */}
-                  <div
-                    style={{
-                      position:  'absolute',
-                      left:      '50%',
-                      bottom:    pressed ? '-2px' : hovered ? '-14px' : '-8px',
-                      width:     '72%',
-                      height:    '16px',
-                      transform: 'translateX(-50%)',
-                      background: 'rgba(0,0,0,0.55)',
-                      borderRadius: '50%',
-                      filter:    'blur(10px)',
-                      opacity:   pressed ? 0.55 : hovered ? 0.3 : 0.45,
-                      transition: 'all 0.25s ease',
-                    }}
-                  />
-
-                  <button
-                    onClick={() => setStarted(true)}
-                    onMouseEnter={() => setHovered(true)}
-                    onMouseLeave={() => { setHovered(false); setPressed(false) }}
-                    onMouseDown={() => setPressed(true)}
-                    onMouseUp={() => setPressed(false)}
-                    onTouchStart={() => setPressed(true)}
-                    onTouchEnd={() => setPressed(false)}
-                    className="relative group block font-bold text-white text-lg"
-                    style={{
-                      fontFamily: 'var(--font-display)',
-                      border: 'none',
-                      background: 'transparent',
-                      padding: 0,
-                      cursor: 'pointer',
-                      borderRadius: '20px',
-                      transformStyle: 'preserve-3d',
-                      letterSpacing: '0.01em',
-                    }}
-                  >
-                    {/* Base/side face — the "block" the front face floats above */}
-                    <span
-                      aria-hidden="true"
-                      style={{
-                        position: 'absolute',
-                        inset: 0,
-                        borderRadius: 'inherit',
-                        background: 'linear-gradient(135deg, #2e1065, #500724)',
-                        transform: 'translateZ(0px) translateY(5px)',
-                      }}
-                    />
-
-                    {/* Front face — lifts on hover, presses down on click */}
-                    <span
-                      className="relative overflow-hidden flex items-center gap-3"
-                      style={{
-                        borderRadius: 'inherit',
-                        padding: '18px 56px',
-                        background: hovered
-                          ? 'linear-gradient(135deg, #4338ca, #7c3aed, #be185d)'
-                          : 'linear-gradient(135deg, #6366f1, #8b5cf6, #ec4899)',
-                        boxShadow: hovered
-                          ? '0 0 80px rgba(99,102,241,0.7), 0 0 120px rgba(236,72,153,0.4)'
-                          : '0 0 40px rgba(99,102,241,0.4), 0 0 80px rgba(236,72,153,0.2)',
-                        transform: `translateZ(${pressed ? 2 : hovered ? 16 : 8}px)`,
-                        transition: 'transform 0.18s ease, background 0.3s ease, box-shadow 0.3s ease',
-                      }}
-                    >
-                      {/* Shimmer sweep */}
-                      <span
-                        className="absolute inset-0 opacity-0 group-hover:opacity-100"
-                        style={{
-                          background: 'linear-gradient(105deg, transparent 25%, rgba(255,255,255,0.14) 50%, transparent 75%)',
-                          animation: hovered ? 'shimmer 0.6s ease' : 'none',
-                          transition: 'opacity 0.5s ease',
-                        }}
-                      />
-                      <span className="relative z-10 flex items-center gap-3">
-                        <span>Start Drawing</span>
-                        <span
-                          className="text-xl"
-                          style={{
-                            transform: hovered ? 'translateX(6px)' : 'translateX(0)',
-                            transition: 'transform 0.3s ease',
-                            display: 'inline-block',
-                          }}
-                        >
-                          →
-                        </span>
-                      </span>
-                    </span>
-                  </button>
-                </div>
-
-                <p
-                  className="text-center text-white/18 text-xs mt-4 tracking-wide"
-                  style={{ fontFamily: 'var(--font-body)' }}
-                >
-                  Camera access required · Works in Chrome &amp; Edge
-                </p>
-              </div>
-            </div>
-
-          </div>
-
-          {/* ── Gesture hints — bottom strip, floating glass chips ── */}
-          <div
-            className="absolute bottom-0 left-0 right-0 z-10"
+            Air
+          </h1>
+          <h1
+            className="leading-[0.92] tracking-tighter mb-5"
             style={{
-              opacity:         revealed ? 1 : 0,
-              transform:       'translateZ(20px)',
-              transition:      'opacity 0.7s ease',
-              transitionDelay: '500ms',
+              fontFamily: 'var(--font-display)',
+              fontWeight: 800,
+              fontSize: 'clamp(44px, 7vw, 92px)',
+              background: 'linear-gradient(135deg, #818cf8 0%, #a78bfa 30%, #e879f9 60%, #f472b6 100%)',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent',
+              filter: 'drop-shadow(0 0 36px rgba(129,140,248,0.45))',
             }}
           >
-            <div
-              className="h-px mx-8 mb-4"
+            Canvas
+          </h1>
+          <p
+            className="text-sm leading-relaxed mx-auto md:mx-0"
+            style={{ fontFamily: 'var(--font-body)', color: 'rgba(255,255,255,0.4)', maxWidth: '260px' }}
+          >
+            Paint with your bare hands. No touch, no stylus — just a webcam and a gesture.
+          </p>
+        </div>
+      </div>
+
+      {/* ── Bottom-right: the iris shutter control (centered on mobile, corner-anchored on desktop) ── */}
+      <div className="absolute inset-x-0 bottom-8 flex flex-col items-center md:inset-x-auto md:right-14 md:bottom-16">
+        <div
+          className="flex flex-col items-center"
+          style={{
+            opacity: revealed ? 1 : 0,
+            transform: revealed ? 'translateY(0)' : 'translateY(16px)',
+            transition: 'opacity 0.8s ease 0.4s, transform 0.8s ease 0.4s',
+          }}
+        >
+        <div className="relative w-[136px] h-[136px] md:w-[168px] md:h-[168px]">
+
+          {/* Outer tick ring — static */}
+          <svg viewBox="0 0 168 168" className="absolute inset-0 w-full h-full" aria-hidden="true">
+            <circle cx="84" cy="84" r="80" fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="1" strokeDasharray="1.5 7" />
+          </svg>
+
+          {/* Rotating arc ring */}
+          <svg
+            viewBox="0 0 168 168"
+            className="absolute inset-0 w-full h-full"
+            style={{
+              animation: reducedMotion ? 'none' : `spin ${hoveredIris ? 4 : 10}s linear infinite`,
+              transition: 'animation-duration 0.3s ease',
+            }}
+            aria-hidden="true"
+          >
+            <defs>
+              <linearGradient id="irisGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#818cf8" />
+                <stop offset="100%" stopColor="#f472b6" />
+              </linearGradient>
+            </defs>
+            <circle
+              cx="84" cy="84" r="68" fill="none" stroke="url(#irisGrad)" strokeWidth="2"
+              strokeDasharray="60 367" strokeLinecap="round"
+              opacity={hoveredIris ? 1 : 0.6}
+              style={{ transition: 'opacity 0.3s ease' }}
+            />
+          </svg>
+
+          {/* Click flash */}
+          {clickPulse > 0 && (
+            <span
+              key={clickPulse}
+              className="absolute rounded-full pointer-events-none"
               style={{
-                background: 'linear-gradient(90deg, transparent, rgba(129,140,248,0.3), rgba(244,114,182,0.3), transparent)',
+                inset: 8,
+                background: 'radial-gradient(circle, rgba(255,255,255,0.9), transparent 70%)',
+                animation: 'shutterFlash 0.45s ease-out forwards',
               }}
             />
+          )}
 
-            <div className="flex items-center justify-center gap-3 pb-6 flex-wrap px-4">
-              {GESTURES.map((g, i) => (
-                <div
-                  key={i}
-                  onMouseEnter={() => setHoverChip(i)}
-                  onMouseLeave={() => setHoverChip(null)}
-                  className="flex items-center gap-2 px-3 py-2 rounded-xl"
-                  style={{
-                    fontFamily: 'var(--font-body)',
-                    background: `rgba(${g.color}, ${hoverChip === i ? 0.12 : 0.05})`,
-                    border:     `1px solid rgba(${g.color}, ${hoverChip === i ? 0.4 : 0.16})`,
-                    transform:  hoverChip === i ? 'translateY(-3px)' : 'translateY(0)',
-                    transition: 'all 0.25s ease',
-                  }}
-                >
-                  <span className="text-base" style={{ filter: `drop-shadow(0 0 4px rgb(${g.color}))` }}>
-                    {g.icon}
-                  </span>
-                  <span
-                    className="text-xs font-medium whitespace-nowrap"
-                    style={{ color: hoverChip === i ? `rgb(${g.color})` : 'rgba(255,255,255,0.4)' }}
-                  >
-                    {g.label}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* ── Top corner watermark ── */}
-          <div
-            className="absolute top-6 right-6 z-10"
+          {/* Core button */}
+          <button
+            onClick={() => { setClickPulse(p => p + 1); setTimeout(() => setStarted(true), 180) }}
+            onMouseEnter={() => setHoveredIris(true)}
+            onMouseLeave={() => setHoveredIris(false)}
+            className="absolute flex flex-col items-center justify-center rounded-full focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-violet-300"
             style={{
-              opacity:         revealed ? 1 : 0,
-              transform:       'translateZ(20px)',
-              transition:      'opacity 0.7s ease',
-              transitionDelay: '700ms',
+              inset: 20,
+              border: 'none',
+              cursor: 'pointer',
+              background: hoveredIris
+                ? 'linear-gradient(135deg, #4338ca, #7c3aed, #be185d)'
+                : 'linear-gradient(135deg, #4f46e5, #7c3aed, #db2777)',
+              boxShadow: hoveredIris
+                ? '0 0 60px rgba(124,58,237,0.65), 0 0 110px rgba(219,39,119,0.35)'
+                : '0 0 28px rgba(124,58,237,0.4), 0 0 60px rgba(219,39,119,0.2)',
+              transform: hoveredIris ? 'scale(1.06)' : 'scale(1)',
+              transition: 'transform 0.25s ease, background 0.3s ease, box-shadow 0.3s ease',
             }}
           >
-            <div className="flex items-center gap-2">
-              <div
-                className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold"
-                style={{
-                  background: 'linear-gradient(135deg, #6366f1, #ec4899)',
-                  boxShadow:  '0 0 10px rgba(99,102,241,0.4), inset 0 1px 1px rgba(255,255,255,0.4)',
-                }}
-              >
-                ✦
-              </div>
-              <span
-                className="text-white/20 text-xs font-medium tracking-widest uppercase"
-                style={{ fontFamily: 'var(--font-display)' }}
-              >
-                Air Canvas
-              </span>
-            </div>
-          </div>
+            <span
+              className="text-sm font-semibold tracking-[0.15em] text-white"
+              style={{ fontFamily: 'var(--font-mono)' }}
+            >
+              START
+            </span>
+            <span
+              className="text-lg text-white"
+              style={{ transform: hoveredIris ? 'translate(2px,-2px)' : 'translate(0,0)', transition: 'transform 0.25s ease' }}
+            >
+              ↗
+            </span>
+          </button>
+        </div>
 
+        <p
+          className="text-[11px] mt-4 tracking-widest text-center"
+          style={{ fontFamily: 'var(--font-mono)', color: 'rgba(255,255,255,0.25)' }}
+        >
+          CAMERA ACCESS REQUIRED
+        </p>
         </div>
       </div>
 
