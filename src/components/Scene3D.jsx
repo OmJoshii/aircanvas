@@ -107,6 +107,12 @@ export default function Scene3D({ reducedMotion = false, onUnsupported }) {
 
       glowTexture = createGlowTexture()
 
+      // Shift the entire composition right-of-center so it sits behind the
+      // new asymmetric HUD layout rather than dead-center behind a hero stack.
+      const worldGroup = new THREE.Group()
+      worldGroup.position.set(1.6, 0.2, 0)
+      scene.add(worldGroup)
+
       // ── Central "ink core" — the glowing source every stroke orbits ──────
       const coreGroup = new THREE.Group()
 
@@ -132,7 +138,7 @@ export default function Scene3D({ reducedMotion = false, onUnsupported }) {
       )
 
       coreGroup.add(coreHalo, coreGlow, coreShell)
-      scene.add(coreGroup)
+      worldGroup.add(coreGroup)
 
       // ── Grid horizon — gives the void an unmistakable sense of 3D depth ──
       const grid = new THREE.GridHelper(34, 28, 0x6366f1, 0x312e5e)
@@ -140,7 +146,7 @@ export default function Scene3D({ reducedMotion = false, onUnsupported }) {
       grid.material.transparent = true
       grid.material.opacity = 0.15
       grid.material.depthWrite = false
-      scene.add(grid)
+      worldGroup.add(grid)
 
       // ── Ambient drifting light-dust ───────────────────────────────────────
       const PARTICLE_COUNT = 260
@@ -175,7 +181,7 @@ export default function Scene3D({ reducedMotion = false, onUnsupported }) {
           vertexColors: true, transparent: true, opacity: 0.95,
           blending: THREE.AdditiveBlending, depthWrite: false,
         }))
-        scene.add(line)
+        worldGroup.add(line)
 
         const tip = new THREE.Sprite(new THREE.SpriteMaterial({
           map: glowTexture,
@@ -183,7 +189,7 @@ export default function Scene3D({ reducedMotion = false, onUnsupported }) {
           transparent: true, blending: THREE.AdditiveBlending, depthWrite: false,
         }))
         tip.scale.set(0.6, 0.6, 1)
-        scene.add(tip)
+        worldGroup.add(tip)
 
         strokes.push({
           curve, geometry, tip, color: def.color,
@@ -238,7 +244,7 @@ export default function Scene3D({ reducedMotion = false, onUnsupported }) {
         camY += (targetY - camY) * 0.04
         camera.position.x = camX
         camera.position.y = camY
-        camera.lookAt(0, 0, 0)
+        camera.lookAt(0.8, 0.2, 0)
 
         composer.render()
       }
