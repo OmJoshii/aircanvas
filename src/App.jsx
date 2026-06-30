@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import AirCanvas from './components/AirCanvas'
 import Scene3D from './components/Scene3D'
+import SDKDemo from './components/SDKDemo'
 
 // ── Self-drawing animated background canvas (fallback when WebGL is unavailable) ──
 function LiveBackground() {
@@ -229,6 +230,7 @@ export default function App() {
   const [hoveredIris,   setHoveredIris]   = useState(false)
   const [clickPulse,    setClickPulse]    = useState(0)
   const [clock,         setClock]         = useState('')
+  const [sdkDemoOpen, setSdkDemoOpen] = useState(false)
 
   const reticleRef = useRef(null)
   const rafRef      = useRef(null)
@@ -295,6 +297,7 @@ export default function App() {
   }, [reducedMotion])
 
   if (started) return <AirCanvas onExit={() => setStarted(false)} />
+  if (sdkDemoOpen) return <SDKDemo onExit={() => setSdkDemoOpen(false)} />
 
   const GESTURES = [
     { n: '01', icon: '🤏', label: 'PINCH',  action: 'Draw',   color: '129,140,248' },
@@ -551,6 +554,12 @@ export default function App() {
             >
               ↗
             </span>
+          </button>
+          <button
+          onClick={() => setSdkDemoOpen(true)}
+          className="text-white/25 hover:text-white/50 text-xs mt-3 underline underline-offset-4 transition-colors"
+          >
+            Or try the GestureOS SDK demo →
           </button>
         </div>
 
