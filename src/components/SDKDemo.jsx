@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { useGestureOS } from '../sdk/useGestureOS'
 import { useGestureTarget } from '../sdk/useGestureTarget'
 
-function GestureButton({ label, color, onSelect }) {
-  const { elRef, hovered, progress } = useGestureTarget({ onSelect, dwellMs: 600 })
+function GestureButton({ label, color, onSelect, ready }) {
+  const { elRef, hovered, progress } = useGestureTarget({ onSelect, dwellMs: 600, ready })
 
   return (
     <button
@@ -57,12 +57,12 @@ export default function SDKDemo({ onExit }) {
         </div>
 
         <div className="grid grid-cols-3 gap-4">
-          <GestureButton label="🏠 Home"     color="#818cf8" onSelect={() => addLog('Selected: Home')} />
-          <GestureButton label="⚙️ Settings" color="#34d399" onSelect={() => addLog('Selected: Settings')} />
-          <GestureButton label="📁 Files"    color="#fbbf24" onSelect={() => addLog('Selected: Files')} />
-          <GestureButton label="🔔 Alerts"   color="#f472b6" onSelect={() => addLog('Selected: Alerts')} />
-          <GestureButton label="👤 Profile"  color="#a78bfa" onSelect={() => addLog('Selected: Profile')} />
-          <GestureButton label="🚪 Exit"     color="#ef4444" onSelect={onExit} />
+          <GestureButton label="🏠 Home"     color="#818cf8" onSelect={() => addLog('Selected: Home')}     ready={ready} />
+          <GestureButton label="⚙️ Settings" color="#34d399" onSelect={() => addLog('Selected: Settings')} ready={ready} />
+          <GestureButton label="📁 Files"    color="#fbbf24" onSelect={() => addLog('Selected: Files')}    ready={ready} />
+          <GestureButton label="🔔 Alerts"   color="#f472b6" onSelect={() => addLog('Selected: Alerts')}   ready={ready} />
+          <GestureButton label="👤 Profile"  color="#a78bfa" onSelect={() => addLog('Selected: Profile')}  ready={ready} />
+          <GestureButton label="🚪 Exit"     color="#ef4444" onSelect={onExit}                              ready={ready} />
         </div>
 
         {/* Event log proving it's wired up to real DOM elements */}
