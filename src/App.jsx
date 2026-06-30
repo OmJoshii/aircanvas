@@ -555,12 +555,7 @@ export default function App() {
               ↗
             </span>
           </button>
-          <button
-          onClick={() => setSdkDemoOpen(true)}
-          className="text-white/25 hover:text-white/50 text-xs mt-3 underline underline-offset-4 transition-colors"
-          >
-            Or try the GestureOS SDK demo →
-          </button>
+          
         </div>
 
         <p
@@ -569,6 +564,13 @@ export default function App() {
         >
           CAMERA ACCESS REQUIRED
         </p>
+
+        <button
+          onClick={() => setSdkDemoOpen(true)}
+          className="text-white/25 hover:text-white/50 text-xs mt-3 underline underline-offset-4 transition-colors"
+        >
+          Or try the GestureOS SDK demo →
+        </button>
         </div>
       </div>
 
