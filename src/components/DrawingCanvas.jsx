@@ -17,6 +17,7 @@ import {
   getGesture,
 } from '../utils/gestureUtils'
 import { getAccessibilitySettings } from '../utils/accessibilitySettings'
+import { growTreeAnimated, drawTreeGuide } from '../utils/treeEngine'
 
 const ERASER_SIZE        = 50
 const MIN_BRUSH          = 4
@@ -48,6 +49,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
   const animFrameRef    = useRef(null)
   const brushIdRef    = useRef('neon')
   const customColorRef = useRef(null)
+  const strokePathRef = useRef({})  // { Left: [{x,y},...], Right: [{x,y},...] }
 
   const undoStack      = useRef([])
   const wasPinching    = useRef({ Left: false, Right: false })
@@ -181,12 +183,41 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         gestureLabels[handedness] = gesture
       })
 
-      // Detect any hand that just stopped pinching (stroke ended) — save undo
+      // Detect any hand that just stopped pinching (stroke ended)
       Object.keys(wasPinching.current).forEach(side => {
         const isPinchingNow = gestureLabels[side] === 'pinch'
+
         if (wasPinching.current[side] && !isPinchingNow) {
-          saveUndoSnapshot()
+          // Stroke ended
+
+          // If tree brush — grow the tree from the completed stroke path
+          if (brushIdRef.current === 'tree') {
+            const path = strokePathRef.current[side]
+            if (path && path.length >= 2) {
+              const drawCanvas = drawCanvasRef.current
+              if (drawCanvas) {
+                const ctx = drawCanvas.getContext('2d')
+                // Clear the guide line before growing the tree
+                // by saving a snapshot, clearing the guide area, then restoring
+                const W = drawCanvas.width
+                const H = drawCanvas.height
+
+                // Get the color for this hand
+                const handColor = customColorRef.current
+                  ? hexToRgb(customColorRef.current)
+                  : getCurrentColor(side, frameCount.current)
+
+                growTreeAnimated(ctx, path, handColor, brushSize.current, () => {
+                  saveUndoSnapshot()
+                })
+              }
+            }
+            strokePathRef.current[side] = []
+          } else {
+            saveUndoSnapshot()
+          }
         }
+
         wasPinching.current[side] = isPinchingNow
       })
 
@@ -409,18 +440,38 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         // ── Normal two-handed mode ──
         if (isPinching && pinchingHand.handedness !== handedness) {
           const prev = smoothedPoints.current[handedness]
+
           if (!prev || isFirstPoint.current[handedness]) {
             smoothedPoints.current[handedness] = rawPos
             isFirstPoint.current[handedness]   = false
+            // Start a new stroke path for tree brush
+            if (brushIdRef.current === 'tree') {
+              strokePathRef.current[handedness] = [rawPos]
+            }
             drawCursor(uiCtx, rawPos, color, true, cursorSize)
             return
           }
+
           const smoothedPos = {
             x: prev.x + (rawPos.x - prev.x) * (1 - SMOOTHING),
             y: prev.y + (rawPos.y - prev.y) * (1 - SMOOTHING),
           }
+
+          // Accumulate path for tree brush
+          if (brushIdRef.current === 'tree') {
+            if (!strokePathRef.current[handedness]) {
+              strokePathRef.current[handedness] = []
+            }
+            strokePathRef.current[handedness].push(smoothedPos)
+          }
+
           drawStroke(drawCtx, prev, smoothedPos, strokeColor, brushSize.current, brushIdRef.current, frameCount.current)
-          drawLightning(drawCtx, prev, smoothedPos, strokeColor, brushSize.current)
+
+          // Only draw lightning for non-tree brushes
+          if (brushIdRef.current !== 'tree') {
+            drawLightning(drawCtx, prev, smoothedPos, strokeColor, brushSize.current)
+          }
+
           drawCursor(uiCtx, smoothedPos, color, true, cursorSize)
           smoothedPoints.current[handedness] = smoothedPos
 
