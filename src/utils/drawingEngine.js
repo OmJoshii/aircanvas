@@ -1,4 +1,5 @@
 // ─── Color utilities ───────────────────────────────────────────────────────
+import { drawTreeGuide } from './treeEngine'
 
 export const PALETTES = {
   Left: [
@@ -59,6 +60,7 @@ export const BRUSHES = [
   { id: 'aurora',    label: 'Aurora',       icon: '🌈' },
   { id: 'magic',     label: 'Magic Wand',   icon: '✨' },
   { id: 'hologram',  label: 'Hologram',     icon: '🔷' },
+  { id: 'tree',      label: 'Tree Brush',   icon: '🌳' },
 ]
 
 // ─── Master draw dispatch ──────────────────────────────────────────────────
@@ -77,6 +79,7 @@ export function drawStroke(ctx, from, to, color, brushSize, brushId = 'neon', fr
     case 'aurora':    drawAurora(ctx, from, to, color, brushSize, frameCount); break
     case 'magic':     drawMagic(ctx, from, to, color, brushSize, frameCount);  break
     case 'hologram':  drawHologram(ctx, from, to, color, brushSize, frameCount); break
+    case 'tree':      drawTreeGuide(ctx, from, to, color, brushSize);          break
     default:          drawNeon(ctx, from, to, color, brushSize);
   }
 }
