@@ -225,9 +225,9 @@ export function growTreeAnimated(ctx, strokePoints, color, brushSize, onComplete
   const len  = Math.hypot(dx, dy)
   if (len < 10) return
 
-  const seed    = Math.floor(base.x * 1000 + base.y)
-  const rand    = seededRandom(seed)
-  const config  = {
+  const seed   = Math.floor(base.x * 1000 + base.y)
+  const rand   = seededRandom(seed)
+  const config = {
     trunkWidth:  Math.max(3, brushSize * 0.6),
     spreadAngle: 0.45 + rand() * 0.25,
     lengthRatio: 0.68 + rand() * 0.08,
@@ -248,43 +248,94 @@ export function growTreeAnimated(ctx, strokePoints, color, brushSize, onComplete
   const maxDepth = Math.min(9, Math.max(5, Math.floor(len / 30)))
   const angle    = Math.atan2(dy, dx)
 
-  // Collect all branches in order so we can animate them sequentially
-  const branches = []
-  collectBranches(base.x, base.y, angle, len, 0, maxDepth, rand, treeColor, config, branches)
+  // Collect branches grouped BY DEPTH LEVEL
+  // so we can animate level by level — trunk first, then branches, then twigs, then leaves
+  const byDepth = []
+  for (let i = 0; i <= maxDepth + 1; i++) byDepth.push([])
 
-  let i = 0
-  const batchSize = Math.max(1, Math.floor(branches.length / 20)) // draw N branches per frame
+  collectBranchesByDepth(
+    base.x, base.y, angle, len,
+    0, maxDepth,
+    seededRandom(seed), treeColor, config,
+    byDepth
+  )
 
-  function frame() {
-    const end = Math.min(i + batchSize, branches.length)
-    for (; i < end; i++) {
-      const b = branches[i]
-      if (b.type === 'branch') {
-        drawBranch(ctx, b.x, b.y, b.angle, b.length, b.depth, maxDepth, seededRandom(seed + i), treeColor, config)
-      } else if (b.type === 'leaf') {
-        drawLeafCluster(ctx, b.x, b.y, b.size, b.depth, maxDepth, seededRandom(seed + i * 7), treeColor)
-      }
-    }
-    if (i < branches.length) {
-      requestAnimationFrame(frame)
-    } else {
-      onComplete?.()
-    }
+  // Draw one depth level at a time with a delay between each
+  // This creates the visible staged growth: trunk → branches → twigs → leaves
+  let currentDepth = 0
+
+  // Delay between depth levels in ms — gets shorter as we go deeper
+  // (trunk is slow and dramatic, tiny twigs are quick)
+  function delayForDepth(depth) {
+    if (depth === 0) return 280  // trunk — slow and dramatic
+    if (depth === 1) return 200  // main branches
+    if (depth === 2) return 160  // secondary branches
+    if (depth <= 4)  return 100  // smaller branches
+    return 60                     // twigs and leaves — fast
   }
-  requestAnimationFrame(frame)
+
+  function drawNextLevel() {
+    if (currentDepth > maxDepth + 1) {
+      onComplete?.()
+      return
+    }
+
+    const items = byDepth[currentDepth] || []
+
+    // Draw all items at this depth level in one frame
+    items.forEach(item => {
+      if (item.type === 'branch') {
+        const r = Math.round(lerp(treeColor.trunk.r, treeColor.tip.r, item.depth / maxDepth))
+        const g = Math.round(lerp(treeColor.trunk.g, treeColor.tip.g, item.depth / maxDepth))
+        const b = Math.round(lerp(treeColor.trunk.b, treeColor.tip.b, item.depth / maxDepth))
+        const lineWidth = Math.max(0.5, config.trunkWidth * Math.pow(0.62, item.depth))
+
+        ctx.save()
+        ctx.strokeStyle  = `rgba(${r},${g},${b},0.9)`
+        ctx.lineWidth    = lineWidth
+        ctx.lineCap      = 'round'
+        ctx.shadowColor  = `rgba(${r},${g},${b},0.4)`
+        ctx.shadowBlur   = lineWidth * 1.5
+        ctx.beginPath()
+        ctx.moveTo(item.x,    item.y)
+        ctx.lineTo(item.endX, item.endY)
+        ctx.stroke()
+        ctx.restore()
+
+      } else if (item.type === 'leaf') {
+        drawLeafCluster(
+          ctx, item.x, item.y, item.size,
+          item.depth, maxDepth,
+          seededRandom(seed + item.x + item.y),
+          treeColor
+        )
+      }
+    })
+
+    currentDepth++
+    setTimeout(drawNextLevel, delayForDepth(currentDepth - 1))
+  }
+
+  // Kick off the animation
+  drawNextLevel()
 }
 
-// Collect branches without drawing (for animation ordering)
-function collectBranches(x, y, angle, length, depth, maxDepth, rand, color, config, out) {
+// Collect branches grouped by depth level for staged animation
+function collectBranchesByDepth(x, y, angle, length, depth, maxDepth, rand, color, config, byDepth) {
   if (depth > maxDepth || length < 1.5) return
 
   const endX = x + Math.cos(angle) * length
   const endY = y + Math.sin(angle) * length
 
-  out.push({ type: 'branch', x, y, angle, length, depth })
+  // Store branch at its depth level
+  byDepth[depth].push({ type: 'branch', x, y, endX, endY, depth })
 
   if (depth >= maxDepth - 1) {
-    out.push({ type: 'leaf', x: endX, y: endY, size: length * 1.4, depth })
+    // Leaves go in a separate "level" after all branches
+    byDepth[maxDepth + 1].push({
+      type: 'leaf', x: endX, y: endY,
+      size: length * 1.4, depth
+    })
     return
   }
 
@@ -293,11 +344,15 @@ function collectBranches(x, y, angle, length, depth, maxDepth, rand, color, conf
   const lengthRatio = config.lengthRatio * (0.95 + rand() * 0.2)
 
   for (let i = 0; i < numBranches; i++) {
-    const spread      = numBranches === 2 ? (i === 0 ? -1 : 1) * spreadAngle : (i - 1) * spreadAngle
+    const spread      = numBranches === 2
+      ? (i === 0 ? -1 : 1) * spreadAngle
+      : (i - 1) * spreadAngle
     const childAngle  = angle + spread + (rand() - 0.5) * 0.15
     const childLength = length * lengthRatio * (0.9 + rand() * 0.2)
-    collectBranches(endX, endY, childAngle, childLength, depth + 1, maxDepth, rand, color, config, out)
+
+    collectBranchesByDepth(
+      endX, endY, childAngle, childLength,
+      depth + 1, maxDepth, rand, color, config, byDepth
+    )
   }
 }
-
-function lerp(a, b, t) { return a + (b - a) * t }
