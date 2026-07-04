@@ -188,31 +188,28 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         const isPinchingNow = gestureLabels[side] === 'pinch'
 
         if (wasPinching.current[side] && !isPinchingNow) {
-          // Stroke ended
-
-          // If tree brush — grow the tree from the completed stroke path
           if (brushIdRef.current === 'tree') {
-            const path = strokePathRef.current[side]
+            // The pinching hand (side) was the TRIGGER hand
+            // The PEN hand is the OTHER hand — that's where the path is stored
+            const penSide = side === 'Left' ? 'Right' : 'Left'
+            const path    = strokePathRef.current[penSide]
+
             if (path && path.length >= 2) {
               const drawCanvas = drawCanvasRef.current
               if (drawCanvas) {
                 const ctx = drawCanvas.getContext('2d')
-                // Clear the guide line before growing the tree
-                // by saving a snapshot, clearing the guide area, then restoring
-                const W = drawCanvas.width
-                const H = drawCanvas.height
-
-                // Get the color for this hand
                 const handColor = customColorRef.current
                   ? hexToRgb(customColorRef.current)
-                  : getCurrentColor(side, frameCount.current)
+                  : getCurrentColor(penSide, frameCount.current)
 
                 growTreeAnimated(ctx, path, handColor, brushSize.current, () => {
                   saveUndoSnapshot()
                 })
               }
             }
-            strokePathRef.current[side] = []
+            // Clear both sides after use
+            strokePathRef.current[side]    = []
+            strokePathRef.current[penSide] = []
           } else {
             saveUndoSnapshot()
           }
