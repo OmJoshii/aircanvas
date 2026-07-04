@@ -18,6 +18,8 @@ import {
 } from '../utils/gestureUtils'
 import { getAccessibilitySettings } from '../utils/accessibilitySettings'
 import { growTreeAnimated, drawTreeGuide } from '../utils/treeEngine'
+import { recognizeSpell }  from '../utils/spellRecognizer'
+import { castSpell }       from '../utils/spellEffects'
 
 const ERASER_SIZE        = 50
 const MIN_BRUSH          = 4
@@ -36,6 +38,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
   isActive,
   brushId,
   customColor,
+  spellMode,
 }, ref) {
   const drawCanvasRef   = useRef(null)
   const uiCanvasRef     = useRef(null)
@@ -50,6 +53,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
   const brushIdRef    = useRef('neon')
   const customColorRef = useRef(null)
   const strokePathRef = useRef({})  // { Left: [{x,y},...], Right: [{x,y},...] }
+  const spellCastingRef = useRef(false)
 
   const undoStack      = useRef([])
   const wasPinching    = useRef({ Left: false, Right: false })
@@ -189,11 +193,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
 
         if (wasPinching.current[side] && !isPinchingNow) {
           if (brushIdRef.current === 'tree') {
-            // The pinching hand (side) was the TRIGGER hand
-            // The PEN hand is the OTHER hand — that's where the path is stored
             const penSide = side === 'Left' ? 'Right' : 'Left'
             const path    = strokePathRef.current[penSide]
-
             if (path && path.length >= 2) {
               const drawCanvas = drawCanvasRef.current
               if (drawCanvas) {
@@ -201,15 +202,35 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
                 const handColor = customColorRef.current
                   ? hexToRgb(customColorRef.current)
                   : getCurrentColor(penSide, frameCount.current)
-
                 growTreeAnimated(ctx, path, handColor, brushSize.current, () => {
                   saveUndoSnapshot()
                 })
               }
             }
-            // Clear both sides after use
-            strokePathRef.current[side]    = []
+            strokePathRef.current[side]                          = []
+            strokePathRef.current[side === 'Left' ? 'Right' : 'Left'] = []
+
+          } else if (spellMode) {
+            // ── SPELL MODE — try to recognize and cast a spell ──
+            const penSide = side === 'Left' ? 'Right' : 'Left'
+            const path    = strokePathRef.current[penSide] || []
+
+            if (path.length >= 8 && !spellCastingRef.current) {
+              const spell = recognizeSpell(path)
+              if (spell) {
+                spellCastingRef.current = true
+                const drawCanvas = drawCanvasRef.current
+                const uiCanvas   = uiCanvasRef.current
+                if (drawCanvas && uiCanvas) {
+                  castSpell(spell, uiCanvas, drawCanvas)
+                }
+                setTimeout(() => { spellCastingRef.current = false }, 500)
+              }
+            }
+
             strokePathRef.current[penSide] = []
+            saveUndoSnapshot()
+
           } else {
             saveUndoSnapshot()
           }
@@ -441,8 +462,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
           if (!prev || isFirstPoint.current[handedness]) {
             smoothedPoints.current[handedness] = rawPos
             isFirstPoint.current[handedness]   = false
-            // Start a new stroke path for tree brush
-            if (brushIdRef.current === 'tree') {
+            // Start a new stroke path for tree brush or spell mode
+            if (brushIdRef.current === 'tree' || spellMode) {
               strokePathRef.current[handedness] = [rawPos]
             }
             drawCursor(uiCtx, rawPos, color, true, cursorSize)
@@ -454,8 +475,8 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             y: prev.y + (rawPos.y - prev.y) * (1 - SMOOTHING),
           }
 
-          // Accumulate path for tree brush
-          if (brushIdRef.current === 'tree') {
+          // Accumulate path for tree brush or spell mode
+          if (brushIdRef.current === 'tree' || spellMode) {
             if (!strokePathRef.current[handedness]) {
               strokePathRef.current[handedness] = []
             }
