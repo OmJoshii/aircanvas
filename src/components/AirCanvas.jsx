@@ -27,6 +27,7 @@ export default function AirCanvas({ onExit }) {
   const [activeColor,     setActiveColor]     = useState(null)
   const [a11yOpen,        setA11yOpen]        = useState(false)
   const [a11ySettings,    setA11ySettings]    = useState(getAccessibilitySettings())
+  const [spellMode, setSpellMode] = useState(false)
 
   // isActive defined here — before any hook that needs it
   const isActive = camReady && modelReady
@@ -135,6 +136,7 @@ export default function AirCanvas({ onExit }) {
           clearTrigger={clearTrigger}
           brushId={activeBrush}
           customColor={activeColor}
+          spellMode={spellMode}
         />
       )}
 
@@ -265,6 +267,18 @@ export default function AirCanvas({ onExit }) {
               </button>
             ))}
           </div>
+          <button
+            onClick={() => setSpellMode(s => !s)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all duration-200 hover:scale-105 active:scale-95"
+            style={{
+              background: spellMode ? 'rgba(167,139,250,0.2)' : 'rgba(255,255,255,0.05)',
+              border: `1px solid ${spellMode ? 'rgba(167,139,250,0.4)' : 'rgba(255,255,255,0.08)'}`,
+              color: spellMode ? '#a78bfa' : 'rgba(255,255,255,0.55)',
+            }}
+         >          
+            <span>🪄</span>
+            <span>Spells</span>
+          </button>
 
           {/* Exit */}
           <button
@@ -349,6 +363,29 @@ export default function AirCanvas({ onExit }) {
           >
             <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
             Listening for voice commands
+          </div>
+        </div>
+      )}
+
+      {spellMode && isActive && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 mt-2">
+          <div
+            className="flex items-center gap-3 px-4 py-2 rounded-full text-xs font-medium"
+            style={{
+              background: 'rgba(167,139,250,0.1)',
+              border: '1px solid rgba(167,139,250,0.25)',
+              color: '#a78bfa',
+              backdropFilter: 'blur(12px)',
+            }}
+          >
+            <span className="animate-pulse">🪄</span>
+            <span>Spell mode — draw a shape to cast:</span>
+            <span>🌀 circle</span>
+            <span>⚡ Z-bolt</span>
+            <span>💖 heart</span>
+            <span>⭐ star</span>
+            <span>🌌 spiral</span>
+            <span>🌊 wave</span>
           </div>
         </div>
       )}
