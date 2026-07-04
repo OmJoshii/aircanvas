@@ -356,3 +356,5 @@ function collectBranchesByDepth(x, y, angle, length, depth, maxDepth, rand, colo
     )
   }
 }
+
+function lerp(a, b, t) { return a + (b - a) * t }
