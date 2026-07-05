@@ -211,12 +211,14 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             strokePathRef.current[side === 'Left' ? 'Right' : 'Left'] = []
 
           } else if (spellMode) {
-            // ── SPELL MODE — try to recognize and cast a spell ──
             const penSide = side === 'Left' ? 'Right' : 'Left'
             const path    = strokePathRef.current[penSide] || []
 
+            console.log('Spell mode — pen side:', penSide, 'path length:', path.length)
+
             if (path.length >= 8 && !spellCastingRef.current) {
               const spell = recognizeSpell(path)
+              console.log('Recognized spell:', spell)
               if (spell) {
                 spellCastingRef.current = true
                 const drawCanvas = drawCanvasRef.current
@@ -481,6 +483,10 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
               strokePathRef.current[handedness] = []
             }
             strokePathRef.current[handedness].push(smoothedPos)
+            // Temporary: verify accumulation
+            if (strokePathRef.current[handedness].length === 1) {
+              console.log('Started accumulating path for hand:', handedness)
+            }
           }
 
           drawStroke(drawCtx, prev, smoothedPos, strokeColor, brushSize.current, brushIdRef.current, frameCount.current)
