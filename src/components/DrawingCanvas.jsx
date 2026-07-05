@@ -17,16 +17,16 @@ import {
   getGesture,
 } from '../utils/gestureUtils'
 import { getAccessibilitySettings } from '../utils/accessibilitySettings'
-import { growTreeAnimated, drawTreeGuide } from '../utils/treeEngine'
-import { recognizeSpell }  from '../utils/spellRecognizer'
-import { castSpell }       from '../utils/spellEffects'
+import { growTreeAnimated }          from '../utils/treeEngine'
+import { recognizeSpell }            from '../utils/spellRecognizer'
+import { castSpell }                 from '../utils/spellEffects'
 
-const ERASER_SIZE        = 50
+const ERASER_SIZE        = 35
 const MIN_BRUSH          = 4
 const MAX_BRUSH          = 40
 const SMOOTHING          = 0.5
 const RESIZE_SENSITIVITY = 0.15
-const CLEAR_HOLD_MS      = 3000
+const CLEAR_HOLD_MS      = 1000
 
 const DrawingCanvas = forwardRef(function DrawingCanvas({
   handsRef,
@@ -40,6 +40,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
   customColor,
   spellMode,
 }, ref) {
+
   const drawCanvasRef   = useRef(null)
   const uiCanvasRef     = useRef(null)
   const smoothedPoints  = useRef({})
@@ -50,45 +51,43 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
   const resizeStartSize = useRef(null)
   const pinchStates     = useRef({ Left: false, Right: false })
   const animFrameRef    = useRef(null)
-  const brushIdRef    = useRef('neon')
-  const customColorRef = useRef(null)
-  const strokePathRef = useRef({})  // { Left: [{x,y},...], Right: [{x,y},...] }
-  const spellCastingRef = useRef(false)
-
-  const undoStack      = useRef([])
-  const wasPinching    = useRef({ Left: false, Right: false })
-  const MAX_UNDO_STEPS = 15
-
+  const undoStack       = useRef([])
+  const wasPinching     = useRef({ Left: false, Right: false })
+  const MAX_UNDO_STEPS  = 15
   const lastReportedBrush    = useRef(14)
   const lastReportedResize   = useRef(false)
   const bothPalmStart        = useRef(null)
   const lastReportedProgress = useRef(0)
   const hasTriggeredClear    = useRef(false)
+  const brushIdRef           = useRef('neon')
+  const customColorRef       = useRef(null)
+  const spellModeRef         = useRef(false)   // ← ref so loop always reads latest value
+  const strokePathRef        = useRef({})
+  const spellCastingRef      = useRef(false)
+  const dwellDrawRef         = useRef({ handedness: null, startTime: null, lastPos: null })
 
-  const dwellDrawRef  = useRef({ handedness: null, startTime: null })
-
+  // Sync all props into refs — these are read inside the rAF loop
+  // so they must never be stale closures
   brushIdRef.current    = brushId
   customColorRef.current = customColor
+  spellModeRef.current  = spellMode    // ← sync spellMode every render
 
+  // ─── Undo snapshot ──────────────────────────────────────────────────────────
   const saveUndoSnapshot = useCallback(() => {
     const canvas = drawCanvasRef.current
     if (!canvas) return
-    const ctx = canvas.getContext('2d')
+    const ctx = canvas.getContext('2d', { willReadFrequently: true }) // fixes the warning
     try {
       const snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height)
       undoStack.current.push(snapshot)
-      if (undoStack.current.length > MAX_UNDO_STEPS) {
-        undoStack.current.shift()
-      }
-    } catch (e) {
-      // ignore — can fail on zero-size canvas during init
-    }
+      if (undoStack.current.length > MAX_UNDO_STEPS) undoStack.current.shift()
+    } catch (e) {}
   }, [])
 
   const undo = useCallback(() => {
     const canvas = drawCanvasRef.current
     if (!canvas || undoStack.current.length === 0) return
-    const ctx = canvas.getContext('2d')
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
     const snapshot = undoStack.current.pop()
     ctx.putImageData(snapshot, 0, 0)
   }, [])
@@ -96,32 +95,21 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
   const saveImage = useCallback((videoElement) => {
     const drawCanvas = drawCanvasRef.current
     if (!drawCanvas) return
-
-    // Create a temporary canvas to composite everything together
     const exportCanvas = document.createElement('canvas')
     exportCanvas.width  = drawCanvas.width
     exportCanvas.height = drawCanvas.height
     const exportCtx = exportCanvas.getContext('2d')
-
-    // Fill with dark background first (matches app background)
     exportCtx.fillStyle = '#07070f'
     exportCtx.fillRect(0, 0, exportCanvas.width, exportCanvas.height)
-
-    // Draw the dimmed mirrored video underneath, if available
     if (videoElement && videoElement.videoWidth > 0) {
       exportCtx.save()
       exportCtx.globalAlpha = 0.25
-      // Mirror to match what the user sees on screen
       exportCtx.translate(exportCanvas.width, 0)
       exportCtx.scale(-1, 1)
       exportCtx.drawImage(videoElement, 0, 0, exportCanvas.width, exportCanvas.height)
       exportCtx.restore()
     }
-
-    // Draw the actual artwork on top
     exportCtx.drawImage(drawCanvas, 0, 0)
-
-    // Trigger download
     const dataUrl = exportCanvas.toDataURL('image/png')
     const link = document.createElement('a')
     link.href = dataUrl
@@ -137,12 +125,14 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     ctx.clearRect(0, 0, canvas.width, canvas.height)
     smoothedPoints.current = {}
     isFirstPoint.current   = {}
+    strokePathRef.current  = {}
   }, [saveUndoSnapshot])
 
   useEffect(() => {
     if (clearTrigger > 0) clearCanvas()
   }, [clearTrigger, clearCanvas])
 
+  // ─── Main animation loop ────────────────────────────────────────────────────
   useEffect(() => {
     if (!isActive) return
 
@@ -150,7 +140,6 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
       const hands      = handsRef.current || []
       const drawCanvas = drawCanvasRef.current
       const uiCanvas   = uiCanvasRef.current
-      const now        = performance.now()
 
       if (!drawCanvas || !uiCanvas) {
         animFrameRef.current = requestAnimationFrame(loop)
@@ -178,58 +167,51 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
       uiCtx.clearRect(0, 0, W, H)
       frameCount.current++
 
-      // ── Compute gesture for each hand locally ──
+      const now = performance.now()
+
+      // ── Gesture labels ───────────────────────────────────────────────────
       const gestureLabels = {}
       hands.forEach(({ landmarks, handedness }) => {
-        const prev = pinchStates.current[handedness]
+        const prev    = pinchStates.current[handedness]
         const gesture = getGesture(landmarks, prev)
         pinchStates.current[handedness] = gesture === 'pinch'
         gestureLabels[handedness] = gesture
       })
 
-      // Detect any hand that just stopped pinching (stroke ended)
+      // ── Stroke-end detection (falling edge of pinch) ─────────────────────
       Object.keys(wasPinching.current).forEach(side => {
         const isPinchingNow = gestureLabels[side] === 'pinch'
 
         if (wasPinching.current[side] && !isPinchingNow) {
+          // A pinch just ended — side = trigger hand, penSide = drawing hand
+          const penSide = side === 'Left' ? 'Right' : 'Left'
+          const path    = strokePathRef.current[penSide] || []
+
           if (brushIdRef.current === 'tree') {
-            const penSide = side === 'Left' ? 'Right' : 'Left'
-            const path    = strokePathRef.current[penSide]
-            if (path && path.length >= 2) {
-              const drawCanvas = drawCanvasRef.current
-              if (drawCanvas) {
-                const ctx = drawCanvas.getContext('2d')
-                const handColor = customColorRef.current
-                  ? hexToRgb(customColorRef.current)
-                  : getCurrentColor(penSide, frameCount.current)
-                growTreeAnimated(ctx, path, handColor, brushSize.current, () => {
-                  saveUndoSnapshot()
-                })
-              }
+            if (path.length >= 2) {
+              const ctx       = drawCanvas.getContext('2d')
+              const handColor = customColorRef.current
+                ? hexToRgb(customColorRef.current)
+                : getCurrentColor(penSide, frameCount.current)
+              growTreeAnimated(ctx, path, handColor, brushSize.current, () => {
+                saveUndoSnapshot()
+              })
             }
-            strokePathRef.current[side]                          = []
-            strokePathRef.current[side === 'Left' ? 'Right' : 'Left'] = []
+            strokePathRef.current[side]    = []
+            strokePathRef.current[penSide] = []
 
-          } else if (spellMode) {
-            const penSide = side === 'Left' ? 'Right' : 'Left'
-            const path    = strokePathRef.current[penSide] || []
-
-            console.log('Spell mode — pen side:', penSide, 'path length:', path.length)
-
+          } else if (spellModeRef.current) {
+            // Read from spellModeRef — always current, never stale
+            console.log('Spell mode stroke end — pen side:', penSide, 'path length:', path.length)
             if (path.length >= 8 && !spellCastingRef.current) {
               const spell = recognizeSpell(path)
               console.log('Recognized spell:', spell)
               if (spell) {
                 spellCastingRef.current = true
-                const drawCanvas = drawCanvasRef.current
-                const uiCanvas   = uiCanvasRef.current
-                if (drawCanvas && uiCanvas) {
-                  castSpell(spell, uiCanvas, drawCanvas)
-                }
+                castSpell(spell, uiCanvas, drawCanvas)
                 setTimeout(() => { spellCastingRef.current = false }, 500)
               }
             }
-
             strokePathRef.current[penSide] = []
             saveUndoSnapshot()
 
@@ -241,17 +223,16 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         wasPinching.current[side] = isPinchingNow
       })
 
-      // ── BOTH PALMS OPEN — hold to clear ──
+      // ── Both palms clear ─────────────────────────────────────────────────
       const bothPalmsOpen = hands.length === 2 &&
         hands.every(h => gestureLabels[h.handedness] === 'open')
 
       if (bothPalmsOpen) {
         if (!bothPalmStart.current) {
-          bothPalmStart.current = performance.now()
+          bothPalmStart.current     = now
           hasTriggeredClear.current = false
         }
-
-        const elapsed  = performance.now() - bothPalmStart.current
+        const elapsed  = now - bothPalmStart.current
         const progress = Math.min(elapsed / CLEAR_HOLD_MS, 1)
 
         const rounded = Math.round(progress * 100)
@@ -267,6 +248,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
           drawCtx.clearRect(0, 0, W, H)
           smoothedPoints.current = {}
           isFirstPoint.current   = {}
+          strokePathRef.current  = {}
         }
 
         const wrist1 = hands[0].landmarks[0]
@@ -280,7 +262,6 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         uiCtx.beginPath()
         uiCtx.arc(midX, midY, 30, 0, Math.PI * 2)
         uiCtx.stroke()
-
         uiCtx.strokeStyle = '#34d399'
         uiCtx.lineWidth   = 4
         uiCtx.shadowColor = '#34d399'
@@ -299,7 +280,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         }
       }
 
-      // ── BRUSH RESIZE MODE ──
+      // ── Brush resize (peace sign) ────────────────────────────────────────
       const allPeaceSign = hands.length === 2 &&
         hands.every(h => isPeaceSign(h.landmarks))
 
@@ -315,7 +296,6 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
           const delta   = (currentDist - resizeStartDist.current) * RESIZE_SENSITIVITY
           const newSize = resizeStartSize.current + delta
           brushSize.current = Math.min(Math.max(newSize, MIN_BRUSH), MAX_BRUSH)
-
           const rounded = Math.round(brushSize.current)
           if (rounded !== lastReportedBrush.current) {
             lastReportedBrush.current = rounded
@@ -359,15 +339,15 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         }
       }
 
-      // ── DRAWING LOGIC ──
+      // ── Drawing logic ────────────────────────────────────────────────────
       const a11y         = getAccessibilitySettings()
       const cursorSize   = a11y.largerCursor ? brushSize.current * 1.8 : brushSize.current
       const pinchingHand = hands.find(h => gestureLabels[h.handedness] === 'pinch')
       const isPinching   = !!pinchingHand
 
       hands.forEach(({ landmarks, handedness }) => {
-        const gesture = gestureLabels[handedness]
-        const color   = getCurrentColor(handedness, frameCount.current)
+        const gesture     = gestureLabels[handedness]
+        const color       = getCurrentColor(handedness, frameCount.current)
         const strokeColor = customColorRef.current
           ? hexToRgb(customColorRef.current)
           : color
@@ -383,7 +363,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
 
         const rawPos = getIndexTipPosition(landmarks, W, H)
 
-        // ── Dwell to draw mode ──
+        // ── Dwell to draw ──────────────────────────────────────────────
         if (a11y.dwellToDraw) {
           const dwell   = dwellDrawRef.current
           const isStill = dwell.handedness === handedness &&
@@ -394,10 +374,9 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             dwellDrawRef.current = { handedness, startTime: now, lastPos: rawPos }
           } else {
             const dwellElapsed = now - dwell.startTime
-            const dwellActive  = dwellElapsed > a11y.dwellDrawMs
+            const dwellActive  = dwellElapsed > (a11y.dwellDrawMs || 800)
 
             if (dwellActive) {
-              // Treat as if pinching — draw at this hand's fingertip
               const prev = smoothedPoints.current[handedness]
               if (!prev || isFirstPoint.current[handedness]) {
                 smoothedPoints.current[handedness] = rawPos
@@ -414,8 +393,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
               return
             }
 
-            // Show dwell progress ring
-            const progress = Math.min((now - dwell.startTime) / a11y.dwellDrawMs, 1)
+            const progress = Math.min((now - dwell.startTime) / (a11y.dwellDrawMs || 800), 1)
             uiCtx.save()
             uiCtx.strokeStyle = toRgb(color)
             uiCtx.lineWidth   = 3
@@ -431,7 +409,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
           return
         }
 
-        // ── One-handed mode ──
+        // ── One-handed mode ────────────────────────────────────────────
         if (a11y.oneHandedMode) {
           if (gesture === 'pinch') {
             const prev = smoothedPoints.current[handedness]
@@ -446,7 +424,9 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
               y: prev.y + (rawPos.y - prev.y) * (1 - SMOOTHING),
             }
             drawStroke(drawCtx, prev, smoothedPos, strokeColor, brushSize.current, brushIdRef.current, frameCount.current)
-            drawLightning(drawCtx, prev, smoothedPos, strokeColor, brushSize.current)
+            if (brushIdRef.current !== 'tree') {
+              drawLightning(drawCtx, prev, smoothedPos, strokeColor, brushSize.current)
+            }
             drawCursor(uiCtx, smoothedPos, color, true, cursorSize)
             smoothedPoints.current[handedness] = smoothedPos
           } else {
@@ -457,17 +437,16 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
           return
         }
 
-        // ── Normal two-handed mode ──
+        // ── Normal two-handed mode ─────────────────────────────────────
         if (isPinching && pinchingHand.handedness !== handedness) {
+          // This is the PEN hand
           const prev = smoothedPoints.current[handedness]
 
           if (!prev || isFirstPoint.current[handedness]) {
             smoothedPoints.current[handedness] = rawPos
             isFirstPoint.current[handedness]   = false
-            // Start a new stroke path for tree brush or spell mode
-            if (brushIdRef.current === 'tree' || spellMode) {
-              strokePathRef.current[handedness] = [rawPos]
-            }
+            // Start fresh stroke path
+            strokePathRef.current[handedness]  = [rawPos]
             drawCursor(uiCtx, rawPos, color, true, cursorSize)
             return
           }
@@ -477,22 +456,16 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             y: prev.y + (rawPos.y - prev.y) * (1 - SMOOTHING),
           }
 
-          // Accumulate path for tree brush or spell mode
-          if (brushIdRef.current === 'tree' || spellMode) {
-            if (!strokePathRef.current[handedness]) {
-              strokePathRef.current[handedness] = []
-            }
-            strokePathRef.current[handedness].push(smoothedPos)
-            // Temporary: verify accumulation
-            if (strokePathRef.current[handedness].length === 1) {
-              console.log('Started accumulating path for hand:', handedness)
-            }
+          // Always accumulate path — needed for both tree and spell mode
+          if (!strokePathRef.current[handedness]) {
+            strokePathRef.current[handedness] = []
           }
+          strokePathRef.current[handedness].push(smoothedPos)
 
+          // Draw the stroke (tree shows guide line, others draw normally)
           drawStroke(drawCtx, prev, smoothedPos, strokeColor, brushSize.current, brushIdRef.current, frameCount.current)
 
-          // Only draw lightning for non-tree brushes
-          if (brushIdRef.current !== 'tree') {
+          if (brushIdRef.current !== 'tree' && !spellModeRef.current) {
             drawLightning(drawCtx, prev, smoothedPos, strokeColor, brushSize.current)
           }
 
@@ -500,11 +473,13 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
           smoothedPoints.current[handedness] = smoothedPos
 
         } else if (!isPinching) {
+          // No pinch — show cursor only, reset stroke
           drawCursor(uiCtx, rawPos, color, false, cursorSize)
           smoothedPoints.current[handedness] = null
           isFirstPoint.current[handedness]   = true
 
         } else {
+          // This is the TRIGGER (pinching) hand — show pinch dot
           const thumbTip = landmarks[4]
           const pinchPos = { x: (1 - thumbTip.x) * W, y: thumbTip.y * H }
           uiCtx.save()
@@ -521,6 +496,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
         }
       })
 
+      // Reset state for hands no longer detected
       Object.keys(smoothedPoints.current).forEach(key => {
         if (!hands.find(h => h.handedness === key)) {
           smoothedPoints.current[key] = null
@@ -532,17 +508,12 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
     }
 
     loop()
-
     return () => {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
     }
   }, [isActive, handsRef, onBrushSize, onResizeMode, onClearProgress, onAutoClear, saveUndoSnapshot])
 
-  useImperativeHandle(ref, () => ({
-    undo,
-    saveImage,
-    canUndo: () => undoStack.current.length > 0,
-  }))
+  useImperativeHandle(ref, () => ({ undo, saveImage, canUndo: () => undoStack.current.length > 0 }))
 
   return (
     <>
