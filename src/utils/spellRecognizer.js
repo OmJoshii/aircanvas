@@ -106,14 +106,27 @@ function selfIntersectionCount(pts) {
   let count = 0
   const step = Math.max(1, Math.floor(pts.length / 16))
   for (let i = 0; i < pts.length - step - 1; i += step) {
+    const p1 = pts[i]
+    const p2 = pts[i + step]
+    if (!p1 || !p2) continue  // guard against undefined
+
     for (let j = i + step * 2; j < pts.length - 1; j += step) {
-      if (segmentsIntersect(pts[i], pts[i + step], pts[j], pts[j + step])) count++
+      const p3 = pts[j]
+      const p4 = pts[j + step] || pts[pts.length - 1] // fallback to last point
+      if (!p3 || !p4) continue  // guard against undefined
+
+      if (segmentsIntersect(p1, p2, p3, p4)) count++
     }
   }
   return count
 }
 
 function segmentsIntersect(p1, p2, p3, p4) {
+  // Guard all four points
+  if (!p1 || !p2 || !p3 || !p4) return false
+  if (p1.x === undefined || p2.x === undefined ||
+      p3.x === undefined || p4.x === undefined) return false
+
   const d1 = { x: p2.x - p1.x, y: p2.y - p1.y }
   const d2 = { x: p4.x - p3.x, y: p4.y - p3.y }
   const cross = d1.x * d2.y - d1.y * d2.x
