@@ -26,7 +26,7 @@ const MIN_BRUSH          = 4
 const MAX_BRUSH          = 40
 const SMOOTHING          = 0.5
 const RESIZE_SENSITIVITY = 0.15
-const CLEAR_HOLD_MS      = 1000
+const CLEAR_HOLD_MS      = 3000
 
 const DrawingCanvas = forwardRef(function DrawingCanvas({
   handsRef,
