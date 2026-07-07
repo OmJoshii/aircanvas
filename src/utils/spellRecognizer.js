@@ -140,93 +140,61 @@ function segmentsIntersect(p1, p2, p3, p4) {
 export function recognizeSpell(rawPoints) {
   if (!rawPoints || rawPoints.length < 8) return null
 
-  const pts        = resample(rawPoints, 48)
-  const bbox       = boundingBox(pts)
+  const pts         = resample(rawPoints, 48)
+  const bbox        = boundingBox(pts)
   const circularity = circularityScore(pts)
-  const closed     = isClosed(pts)
-  const rotation   = netRotation(pts)
-  const dirChanges = countDirectionChanges(pts)
-  const crossings  = selfIntersectionCount(pts)
-  const c          = centroid(pts)
-  const totalLen   = pathLength(pts)
-  const bbox_diag  = Math.hypot(bbox.w, bbox.h)
+  const closed      = isClosed(pts, 0.3)
+  const rotation    = netRotation(pts)
+  const dirChanges  = countDirectionChanges(pts, 0.7)
+  const crossings   = selfIntersectionCount(pts)
+  const c           = centroid(pts)
+  const bbox_diag   = Math.hypot(bbox.w, bbox.h)
   const aspectRatio = bbox.w / Math.max(bbox.h, 1)
 
-  // ── CIRCLE / PORTAL ──────────────────────────────────────────────────────
-  // High circularity + closed + more than half a rotation
-  if (circularity > 0.65 && closed && Math.abs(rotation) > Math.PI) {
-    return {
-      spell: 'portal',
-      label: 'Portal',
-      emoji: '🌀',
-      x: c.x, y: c.y,
-      radius: (bbox.w + bbox.h) / 4,
-    }
-  }
+  console.log('Spell analysis:', {
+    circularity: circularity.toFixed(2),
+    closed,
+    rotation: rotation.toFixed(2),
+    dirChanges,
+    crossings,
+    aspectRatio: aspectRatio.toFixed(2),
+  })
 
-  // ── HEART / LOVE ─────────────────────────────────────────────────────────
-  // Closed, roughly square bounding box, 2 direction changes (the two humps)
-  // and comes back to the start from below
-  if (closed && dirChanges >= 2 && dirChanges <= 4 &&
-      aspectRatio > 0.6 && aspectRatio < 1.8 &&
-      circularity < 0.65 && bbox.h > bbox.w * 0.5) {
-    return {
-      spell: 'heart',
-      label: 'Love',
-      emoji: '💖',
-      x: c.x, y: c.y,
-      radius: (bbox.w + bbox.h) / 4,
-    }
-  }
-
-  // ── LIGHTNING / Z-BOLT ───────────────────────────────────────────────────
-  // Exactly 2 strong direction changes forming a Z or S shape
-  // Not closed, clear horizontal movement
-  if (!closed && dirChanges >= 2 && dirChanges <= 3 &&
-      circularity < 0.4 && aspectRatio > 0.5) {
-    return {
-      spell: 'lightning',
-      label: 'Lightning',
-      emoji: '⚡',
-      x: c.x, y: c.y,
-      radius: bbox_diag / 2,
-    }
-  }
-
-  // ── STAR / STARDUST ──────────────────────────────────────────────────────
-  // Multiple self-intersections + multiple direction reversals
+  // ── STAR first — multiple crossings + many direction changes ─────────────
+  // Most specific — must match before anything else
   if (crossings >= 3 && dirChanges >= 4) {
-    return {
-      spell: 'star',
-      label: 'Stardust',
-      emoji: '⭐',
-      x: c.x, y: c.y,
-      radius: bbox_diag / 2,
-    }
+    return { spell: 'star', label: 'Stardust', emoji: '⭐', x: c.x, y: c.y, radius: bbox_diag / 2 }
   }
 
-  // ── SPIRAL / GALAXY ──────────────────────────────────────────────────────
-  // Large net rotation (more than 1.5 full turns) + not closed
-  if (Math.abs(rotation) > Math.PI * 3 && !closed) {
-    return {
-      spell: 'galaxy',
-      label: 'Galaxy',
-      emoji: '🌌',
-      x: c.x, y: c.y,
-      radius: bbox_diag / 2,
-    }
+  // ── SPIRAL — very high net rotation, not closed ──────────────────────────
+  // Spiral must be checked before circle — it has high rotation but isn't closed
+  if (Math.abs(rotation) > Math.PI * 3.5 && !closed) {
+    return { spell: 'galaxy', label: 'Galaxy', emoji: '🌌', x: c.x, y: c.y, radius: bbox_diag / 2 }
   }
 
-  // ── WAVE / WATER ─────────────────────────────────────────────────────────
-  // Multiple direction changes, wide horizontal stroke
-  if (dirChanges >= 4 && aspectRatio > 2.0 && !closed) {
-    return {
-      spell: 'wave',
-      label: 'Wave',
-      emoji: '🌊',
-      x: c.x, y: c.y,
-      radius: bbox_diag / 2,
-    }
+  // ── WAVE — many direction changes, wide and horizontal, not closed ────────
+  if (!closed && dirChanges >= 5 && aspectRatio > 1.8) {
+    return { spell: 'wave', label: 'Wave', emoji: '🌊', x: c.x, y: c.y, radius: bbox_diag / 2 }
+  }
+
+  // ── LIGHTNING / Z-BOLT — exactly 2-3 direction changes, not closed ────────
+  // Must come before heart — Z is open, heart is closed
+  if (!closed && dirChanges >= 2 && dirChanges <= 4 &&
+      circularity < 0.45 && crossings === 0) {
+    return { spell: 'lightning', label: 'Lightning', emoji: '⚡', x: c.x, y: c.y, radius: bbox_diag / 2 }
+  }
+
+  // ── HEART — closed shape with 2-4 direction changes, NOT highly circular ──
+  // A heart is closed but has bumps (direction changes) — distinguishes it from circle
+  if (closed && dirChanges >= 2 && dirChanges <= 5 &&
+      circularity < 0.72 && crossings <= 1) {
+    return { spell: 'heart', label: 'Love', emoji: '💖', x: c.x, y: c.y, radius: bbox_diag / 2 }
+  }
+
+  // ── CIRCLE / PORTAL — closed, highly circular, minimal direction changes ──
+  // Most general — checked last so specific shapes aren't swallowed by it
+  if (circularity > 0.68 && closed && Math.abs(rotation) > Math.PI * 0.8 && dirChanges <= 2) {
+    return { spell: 'portal', label: 'Portal', emoji: '🌀', x: c.x, y: c.y, radius: (bbox.w + bbox.h) / 4 }
   }
 
   return null
