@@ -151,14 +151,7 @@ export function recognizeSpell(rawPoints) {
   const bbox_diag   = Math.hypot(bbox.w, bbox.h)
   const aspectRatio = bbox.w / Math.max(bbox.h, 1)
 
-  console.log('Spell analysis:', {
-    circularity: circularity.toFixed(2),
-    closed,
-    rotation: rotation.toFixed(2),
-    dirChanges,
-    crossings,
-    aspectRatio: aspectRatio.toFixed(2),
-  })
+  console.log(`SPELL | circ:${circularity.toFixed(2)} closed:${closed} rot:${rotation.toFixed(1)} dir:${dirChanges} cross:${crossings} aspect:${aspectRatio.toFixed(2)}`)
 
   // ── STAR first — multiple crossings + many direction changes ─────────────
   // Most specific — must match before anything else

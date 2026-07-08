@@ -205,7 +205,7 @@ const DrawingCanvas = forwardRef(function DrawingCanvas({
             console.log('Spell mode stroke end — pen side:', penSide, 'path length:', path.length)
             if (path.length >= 8 && !spellCastingRef.current) {
               const spell = recognizeSpell(path)
-              console.log('Recognized spell:', spell)
+              console.log('Recognized spell:', spell?.spell || 'null')
               if (spell) {
                 spellCastingRef.current = true
                 castSpell(spell, uiCanvas, drawCanvas)
