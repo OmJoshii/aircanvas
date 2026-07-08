@@ -421,6 +421,7 @@ export function castWave(uiCanvas, drawCanvas, x, y, radius) {
 // ─── Master dispatcher ────────────────────────────────────────────────────────
 export function castSpell(spell, uiCanvas, drawCanvas) {
   const { x, y, radius } = spell
+  console.log('CASTING:', spell.spell)
   switch (spell.spell) {
     case 'portal':    castPortal(uiCanvas, drawCanvas, x, y, radius);    break
     case 'lightning': castLightning(uiCanvas, drawCanvas, x, y, radius); break
