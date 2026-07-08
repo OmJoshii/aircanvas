@@ -1,193 +1,177 @@
-// ─── Spell recognition from stroke geometry ─────────────────────────────────
-// No ML, no templates — pure geometric analysis of stroke properties
+// ─── Direction-sequence based spell recognition ─────────────────────────────
+// Instead of analyzing the final shape geometry, we analyze the SEQUENCE
+// of directions the hand moved through while drawing. This is far more
+// robust for imprecise real-time hand tracking because it captures
+// drawing behavior, not shape appearance.
 
-// Resample stroke to fixed number of points for consistent analysis
-function resample(points, n = 32) {
-  if (points.length < 2) return points
-  const result = [points[0]]
-  let D = 0
-  const totalLen = pathLength(points)
-  const interval = totalLen / (n - 1)
-  const src = points.map(p => ({ ...p }))
+const DIR_NONE  = 'none'
+const DIR_RIGHT = 'R'
+const DIR_LEFT  = 'L'
+const DIR_UP    = 'U'
+const DIR_DOWN  = 'D'
+const DIR_UR    = 'UR'
+const DIR_UL    = 'UL'
+const DIR_DR    = 'DR'
+const DIR_DL    = 'DL'
 
-  let i = 1
-  while (i < src.length) {
-    const d = dist(src[i - 1], src[i])
-    if (D + d >= interval) {
-      const t = (interval - D) / d
-      const q = {
-        x: src[i - 1].x + t * (src[i].x - src[i - 1].x),
-        y: src[i - 1].y + t * (src[i].y - src[i - 1].y),
-      }
-      result.push(q)
-      src[i - 1] = q
-      D = 0
-    } else {
-      D += d
-      i++
+// Convert a displacement vector to a cardinal/diagonal direction
+function vectorToDir(dx, dy) {
+  const len = Math.hypot(dx, dy)
+  if (len < 4) return DIR_NONE // too small to have direction
+
+  const nx = dx / len
+  const ny = dy / len
+
+  // Map to 8 directions
+  const angle = Math.atan2(ny, nx) * 180 / Math.PI
+
+  if (angle >= -22.5  && angle <  22.5)  return DIR_RIGHT
+  if (angle >=  22.5  && angle <  67.5)  return DIR_DR
+  if (angle >=  67.5  && angle < 112.5)  return DIR_DOWN
+  if (angle >= 112.5  && angle < 157.5)  return DIR_DL
+  if (angle >= 157.5  || angle < -157.5) return DIR_LEFT
+  if (angle >= -157.5 && angle < -112.5) return DIR_UL
+  if (angle >= -112.5 && angle < -67.5)  return DIR_UP
+  if (angle >= -67.5  && angle < -22.5)  return DIR_UR
+  return DIR_NONE
+}
+
+// Segment raw points into a sequence of dominant directions
+// Groups consecutive points moving in the same direction into segments
+function getDirectionSequence(points) {
+  if (points.length < 4) return []
+
+  // Step 1: compute direction for each consecutive chunk
+  const chunkSize = Math.max(3, Math.floor(points.length / 20))
+  const rawDirs   = []
+
+  for (let i = 0; i < points.length - chunkSize; i += Math.max(1, Math.floor(chunkSize / 2))) {
+    const dx = points[i + chunkSize].x - points[i].x
+    const dy = points[i + chunkSize].y - points[i].y
+    const dir = vectorToDir(dx, dy)
+    if (dir !== DIR_NONE) rawDirs.push(dir)
+  }
+
+  // Step 2: collapse consecutive identical directions into runs
+  const sequence = []
+  let prev = null
+  for (const dir of rawDirs) {
+    if (dir !== prev) {
+      sequence.push(dir)
+      prev = dir
     }
   }
-  while (result.length < n) result.push(points[points.length - 1])
-  return result
+
+  return sequence
 }
 
-function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y) }
-function pathLength(pts) {
-  let len = 0
-  for (let i = 1; i < pts.length; i++) len += dist(pts[i - 1], pts[i])
-  return len
-}
-
-function centroid(pts) {
-  return {
-    x: pts.reduce((s, p) => s + p.x, 0) / pts.length,
-    y: pts.reduce((s, p) => s + p.y, 0) / pts.length,
+// Count how many times the stroke makes a sharp reversal
+// (opposite or near-opposite directions back to back)
+function countReversals(seq) {
+  const opposites = {
+    R: ['L'], L: ['R'],
+    U: ['D'], D: ['U'],
+    UR: ['DL', 'L'], UL: ['DR', 'R'],
+    DR: ['UL', 'L'], DL: ['UR', 'R'],
   }
-}
-
-function boundingBox(pts) {
-  const xs = pts.map(p => p.x), ys = pts.map(p => p.y)
-  return {
-    minX: Math.min(...xs), maxX: Math.max(...xs),
-    minY: Math.min(...ys), maxY: Math.max(...ys),
-    w: Math.max(...xs) - Math.min(...xs),
-    h: Math.max(...ys) - Math.min(...ys),
-  }
-}
-
-// Count how many times the stroke changes direction significantly
-function countDirectionChanges(pts, threshold = 0.8) {
-  let changes = 0
-  for (let i = 2; i < pts.length - 1; i++) {
-    const v1 = { x: pts[i].x - pts[i - 2].x, y: pts[i].y - pts[i - 2].y }
-    const v2 = { x: pts[i + 1].x - pts[i - 1].x, y: pts[i + 1].y - pts[i - 1].y }
-    const l1 = Math.hypot(v1.x, v1.y), l2 = Math.hypot(v2.x, v2.y)
-    if (l1 < 1 || l2 < 1) continue
-    const dot = (v1.x * v2.x + v1.y * v2.y) / (l1 * l2)
-    if (dot < -threshold) changes++
-  }
-  return changes
-}
-
-// Measure how "circular" a stroke is
-// Returns 0 (not circular) to 1 (perfect circle)
-function circularityScore(pts) {
-  const c   = centroid(pts)
-  const radii = pts.map(p => dist(p, c))
-  const avg = radii.reduce((s, r) => s + r, 0) / radii.length
-  if (avg < 1) return 0
-  const variance = radii.reduce((s, r) => s + Math.pow(r - avg, 2), 0) / radii.length
-  return 1 / (1 + variance / (avg * avg))
-}
-
-// Check if stroke starts and ends near each other (closed shape)
-function isClosed(pts, threshold = 0.25) {
-  const bbox = boundingBox(pts)
-  const diag = Math.hypot(bbox.w, bbox.h)
-  return dist(pts[0], pts[pts.length - 1]) < diag * threshold
-}
-
-// Measure net rotation direction of the stroke
-function netRotation(pts) {
-  let angle = 0
-  for (let i = 1; i < pts.length - 1; i++) {
-    const a1 = Math.atan2(pts[i].y - pts[i - 1].y, pts[i].x - pts[i - 1].x)
-    const a2 = Math.atan2(pts[i + 1].y - pts[i].y, pts[i + 1].x - pts[i].x)
-    let da = a2 - a1
-    if (da > Math.PI)  da -= 2 * Math.PI
-    if (da < -Math.PI) da += 2 * Math.PI
-    angle += da
-  }
-  return angle // positive = CCW, negative = CW
-}
-
-// Check if the stroke crosses itself (like a figure-8 or star)
-function selfIntersectionCount(pts) {
   let count = 0
-  const step = Math.max(1, Math.floor(pts.length / 16))
-  for (let i = 0; i < pts.length - step - 1; i += step) {
-    const p1 = pts[i]
-    const p2 = pts[i + step]
-    if (!p1 || !p2) continue  // guard against undefined
-
-    for (let j = i + step * 2; j < pts.length - 1; j += step) {
-      const p3 = pts[j]
-      const p4 = pts[j + step] || pts[pts.length - 1] // fallback to last point
-      if (!p3 || !p4) continue  // guard against undefined
-
-      if (segmentsIntersect(p1, p2, p3, p4)) count++
-    }
+  for (let i = 1; i < seq.length; i++) {
+    const opp = opposites[seq[i - 1]] || []
+    if (opp.includes(seq[i])) count++
   }
   return count
 }
 
-function segmentsIntersect(p1, p2, p3, p4) {
-  // Guard all four points
-  if (!p1 || !p2 || !p3 || !p4) return false
-  if (p1.x === undefined || p2.x === undefined ||
-      p3.x === undefined || p4.x === undefined) return false
-
-  const d1 = { x: p2.x - p1.x, y: p2.y - p1.y }
-  const d2 = { x: p4.x - p3.x, y: p4.y - p3.y }
-  const cross = d1.x * d2.y - d1.y * d2.x
-  if (Math.abs(cross) < 0.001) return false
-  const t = ((p3.x - p1.x) * d2.y - (p3.y - p1.y) * d2.x) / cross
-  const u = ((p3.x - p1.x) * d1.y - (p3.y - p1.y) * d1.x) / cross
-  return t >= 0 && t <= 1 && u >= 0 && u <= 1
+// Check if stroke is predominantly rotational (circle/spiral)
+function isRotational(points) {
+  let totalAngle = 0
+  for (let i = 2; i < points.length; i++) {
+    const a1 = Math.atan2(points[i - 1].y - points[i - 2].y, points[i - 1].x - points[i - 2].x)
+    const a2 = Math.atan2(points[i].y - points[i - 1].y, points[i].x - points[i - 1].x)
+    let da = a2 - a1
+    if (da >  Math.PI) da -= 2 * Math.PI
+    if (da < -Math.PI) da += 2 * Math.PI
+    totalAngle += da
+  }
+  return { totalAngle, turns: Math.abs(totalAngle) / (2 * Math.PI) }
 }
 
-// ─── Main recognition function ───────────────────────────────────────────────
+// Is the stroke closed (end near start)?
+function isClosed(points, threshold = 0.25) {
+  const xs = points.map(p => p.x), ys = points.map(p => p.y)
+  const w  = Math.max(...xs) - Math.min(...xs)
+  const h  = Math.max(...ys) - Math.min(...ys)
+  const d  = Math.hypot(points[0].x - points[points.length - 1].x, points[0].y - points[points.length - 1].y)
+  return d < Math.hypot(w, h) * threshold
+}
+
+function centroid(points) {
+  return {
+    x: points.reduce((s, p) => s + p.x, 0) / points.length,
+    y: points.reduce((s, p) => s + p.y, 0) / points.length,
+  }
+}
+
+function boundingDiag(points) {
+  const xs = points.map(p => p.x), ys = points.map(p => p.y)
+  const w  = Math.max(...xs) - Math.min(...xs)
+  const h  = Math.max(...ys) - Math.min(...ys)
+  return Math.hypot(w, h)
+}
+
+// ─── Main recognition ────────────────────────────────────────────────────────
 export function recognizeSpell(rawPoints) {
   if (!rawPoints || rawPoints.length < 8) return null
 
-  const pts         = resample(rawPoints, 48)
-  const bbox        = boundingBox(pts)
-  const circularity = circularityScore(pts)
-  const closed      = isClosed(pts, 0.3)
-  const rotation    = netRotation(pts)
-  const dirChanges  = countDirectionChanges(pts, 0.7)
-  const crossings   = selfIntersectionCount(pts)
-  const c           = centroid(pts)
-  const bbox_diag   = Math.hypot(bbox.w, bbox.h)
-  const aspectRatio = bbox.w / Math.max(bbox.h, 1)
+  const seq       = getDirectionSequence(rawPoints)
+  const reversals = countReversals(seq)
+  const { totalAngle, turns } = isRotational(rawPoints)
+  const closed    = isClosed(rawPoints)
+  const c         = centroid(rawPoints)
+  const radius    = boundingDiag(rawPoints) / 2
 
-  console.log(`SPELL | circ:${circularity.toFixed(2)} closed:${closed} rot:${rotation.toFixed(1)} dir:${dirChanges} cross:${crossings} aspect:${aspectRatio.toFixed(2)}`)
+  const xs = rawPoints.map(p => p.x), ys = rawPoints.map(p => p.y)
+  const w  = Math.max(...xs) - Math.min(...xs)
+  const h  = Math.max(...ys) - Math.min(...ys)
+  const aspect = w / Math.max(h, 1)
 
-  // ── STAR first — multiple crossings + many direction changes ─────────────
-  // Most specific — must match before anything else
-  if (crossings >= 3 && dirChanges >= 4) {
-    return { spell: 'star', label: 'Stardust', emoji: '⭐', x: c.x, y: c.y, radius: bbox_diag / 2 }
+  console.log(`SPELL seq:[${seq.join(',')}] rev:${reversals} turns:${turns.toFixed(2)} closed:${closed} aspect:${aspect.toFixed(2)}`)
+
+  // ── SPIRAL / GALAXY ──────────────────────────────────────────────────────
+  // More than 1.5 full turns AND not closed (keeps spiraling outward)
+  if (turns > 1.5 && !closed) {
+    return { spell: 'galaxy', label: 'Galaxy', emoji: '🌌', x: c.x, y: c.y, radius }
   }
 
-  // ── SPIRAL — very high net rotation, not closed ──────────────────────────
-  // Spiral must be checked before circle — it has high rotation but isn't closed
-  if (Math.abs(rotation) > Math.PI * 3.5 && !closed) {
-    return { spell: 'galaxy', label: 'Galaxy', emoji: '🌌', x: c.x, y: c.y, radius: bbox_diag / 2 }
+  // ── CIRCLE / PORTAL ──────────────────────────────────────────────────────
+  // 0.7–1.5 full turns AND closed (comes back to start) AND few reversals
+  if (turns > 0.7 && turns <= 1.5 && closed && reversals <= 1) {
+    return { spell: 'portal', label: 'Portal', emoji: '🌀', x: c.x, y: c.y, radius }
   }
 
-  // ── WAVE — many direction changes, wide and horizontal, not closed ────────
-  if (!closed && dirChanges >= 5 && aspectRatio > 1.8) {
-    return { spell: 'wave', label: 'Wave', emoji: '🌊', x: c.x, y: c.y, radius: bbox_diag / 2 }
+  // ── STAR / STARDUST ──────────────────────────────────────────────────────
+  // 4+ reversals (the sharp points of a star) + enough angular movement
+  if (reversals >= 4 && turns > 0.5) {
+    return { spell: 'star', label: 'Stardust', emoji: '⭐', x: c.x, y: c.y, radius }
   }
 
-  // ── LIGHTNING / Z-BOLT — exactly 2-3 direction changes, not closed ────────
-  // Must come before heart — Z is open, heart is closed
-  if (!closed && dirChanges >= 2 && dirChanges <= 4 &&
-      circularity < 0.45 && crossings === 0) {
-    return { spell: 'lightning', label: 'Lightning', emoji: '⚡', x: c.x, y: c.y, radius: bbox_diag / 2 }
+  // ── HEART / LOVE ─────────────────────────────────────────────────────────
+  // Closed, 2–3 reversals (the two humps + return), moderate turns
+  if (closed && reversals >= 2 && reversals <= 3 && turns > 0.3 && turns < 1.2) {
+    return { spell: 'heart', label: 'Love', emoji: '💖', x: c.x, y: c.y, radius }
   }
 
-  // ── HEART — closed shape with 2-4 direction changes, NOT highly circular ──
-  // A heart is closed but has bumps (direction changes) — distinguishes it from circle
-  if (closed && dirChanges >= 2 && dirChanges <= 5 &&
-      circularity < 0.72 && crossings <= 1) {
-    return { spell: 'heart', label: 'Love', emoji: '💖', x: c.x, y: c.y, radius: bbox_diag / 2 }
+  // ── LIGHTNING / Z-BOLT ───────────────────────────────────────────────────
+  // Not closed, exactly 2 reversals (right → diagonal → right for Z shape)
+  // + wide horizontal extent
+  if (!closed && reversals === 2 && turns < 0.5 && aspect > 0.6) {
+    return { spell: 'lightning', label: 'Lightning', emoji: '⚡', x: c.x, y: c.y, radius }
   }
 
-  // ── CIRCLE / PORTAL — closed, highly circular, minimal direction changes ──
-  // Most general — checked last so specific shapes aren't swallowed by it
-  if (circularity > 0.68 && closed && Math.abs(rotation) > Math.PI * 0.8 && dirChanges <= 2) {
-    return { spell: 'portal', label: 'Portal', emoji: '🌀', x: c.x, y: c.y, radius: (bbox.w + bbox.h) / 4 }
+  // ── WAVE ─────────────────────────────────────────────────────────────────
+  // Not closed, 4+ reversals but low turns (oscillating, not rotating)
+  if (!closed && reversals >= 4 && turns < 0.8 && aspect > 1.5) {
+    return { spell: 'wave', label: 'Wave', emoji: '🌊', x: c.x, y: c.y, radius }
   }
 
   return null
