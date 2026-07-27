@@ -129,14 +129,13 @@ export function recognizeSpell(rawPoints) {
   // Closed, exactly 2-3 radius spikes (the two humps), moderate variance
   // A heart has two bumps at top and narrows at bottom — distinctly different
   // from a star (which has more spikes) and a circle (which has 0-1 spikes)
-  if (closed && spikes >= 2 && spikes <= 3 && rVar > 0.12 && rVar < 0.32) {
+  if (closed && spikes >= 2 && spikes <= 3 && rVar > 0.12 && rVar < 0.58) {
     return { spell: 'heart', label: 'Love', emoji: '💖', x: c.x, y: c.y, radius }
   }
 
-  // ── CIRCLE / PORTAL ──────────────────────────────────────────────────────
-  // Closed, low radius variance (consistent distance from center = circle)
-  // very few spikes
-  if (closed && turns > 0.6 && rVar < 0.18 && spikes <= 2) {
+  // Circle: closed, at least half a turn, moderate radius variance
+  // Your real circles show rVar 0.25-0.40 so threshold raised accordingly
+  if (closed && turns > 0.6 && rVar < 0.42 && spikes <= 2) {
     return { spell: 'portal', label: 'Portal', emoji: '🌀', x: c.x, y: c.y, radius }
   }
 

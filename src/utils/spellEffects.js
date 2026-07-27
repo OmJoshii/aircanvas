@@ -19,14 +19,15 @@ class Particle {
     this.life--
   }
   draw(ctx) {
-    const alpha = this.life / this.maxLife
+    const alpha      = this.life / this.maxLife
+    const drawRadius = Math.max(0.1, this.size * alpha) // never negative or zero
     ctx.save()
-    ctx.globalAlpha = alpha
+    ctx.globalAlpha = Math.max(0, alpha)
     ctx.fillStyle   = this.color
     ctx.shadowColor = this.color
     ctx.shadowBlur  = this.size * 2
     ctx.beginPath()
-    ctx.arc(this.x, this.y, this.size * alpha, 0, TAU)
+    ctx.arc(this.x, this.y, drawRadius, 0, Math.PI * 2)
     ctx.fill()
     ctx.restore()
   }
