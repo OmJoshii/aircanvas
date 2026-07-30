@@ -453,6 +453,23 @@ export default function AirCanvas({ onExit }) {
         </div>
       )}
 
+      {ecoMode && isActive && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 mt-2">
+          <div
+            className="flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium"
+            style={{
+              background: 'rgba(52,211,153,0.1)',
+              border: '1px solid rgba(52,211,153,0.25)',
+              color: '#34d399',
+              backdropFilter: 'blur(12px)',
+            }}
+          >
+            <span>🌍</span>
+            <span>Draw: ☁️ cloud at top · ☀️ circle at top · 🌊 wide line middle · ☔ vertical lines · 🌳 vertical near ground</span>
+          </div>
+        </div>
+      )}
+
       {/* ── BOTTOM HUD ── */}
       {isActive && (
         <div className="absolute bottom-0 left-0 right-0 z-30 pointer-events-none">
