@@ -146,6 +146,14 @@ export default function AirCanvas({ onExit }) {
 
       {camReady && <HandSkeleton handsRef={handsRef} isActive={camReady} />}
 
+      {ecoMode && isActive && (
+        <EcosystemCanvas
+          handsRef={handsRef}
+          isActive={isActive}
+          clearTrigger={clearTrigger}
+        />
+      )}
+
       {physicsMode && isActive && (
         <PhysicsCanvas
           handsRef={handsRef}
