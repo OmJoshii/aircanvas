@@ -9,6 +9,7 @@ import BrushPicker from './BrushPicker'
 import AccessibilityPanel from './AccessibilityPanel'
 import { useVoiceCommands } from '../hooks/useVoiceCommands'
 import { getAccessibilitySettings, subscribeAccessibility } from '../utils/accessibilitySettings'
+import PhysicsCanvas from './PhysicsCanvas'
 
 export default function AirCanvas({ onExit }) {
   const { videoRef, ready: camReady, error: camError } = useCamera(true)
@@ -28,6 +29,7 @@ export default function AirCanvas({ onExit }) {
   const [a11yOpen,        setA11yOpen]        = useState(false)
   const [a11ySettings,    setA11ySettings]    = useState(getAccessibilitySettings())
   const [spellMode, setSpellMode] = useState(false)
+  const [physicsMode, setPhysicsMode] = useState(false)
 
   // isActive defined here — before any hook that needs it
   const isActive = camReady && modelReady
@@ -141,6 +143,14 @@ export default function AirCanvas({ onExit }) {
       )}
 
       {camReady && <HandSkeleton handsRef={handsRef} isActive={camReady} />}
+
+      {physicsMode && isActive && (
+        <PhysicsCanvas
+          handsRef={handsRef}
+          isActive={isActive}
+          clearTrigger={clearTrigger}
+        />
+      )}
 
       {/* ── Panels ── */}
       {brushPickerOpen && (
@@ -280,6 +290,19 @@ export default function AirCanvas({ onExit }) {
             <span>Spells</span>
           </button>
 
+          <button
+            onClick={() => setPhysicsMode(p => !p)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all duration-200 hover:scale-105 active:scale-95"
+            style={{
+              background: physicsMode ? 'rgba(251,191,36,0.2)' : 'rgba(255,255,255,0.05)',
+              border: `1px solid ${physicsMode ? 'rgba(251,191,36,0.4)' : 'rgba(255,255,255,0.08)'}`,
+              color: physicsMode ? '#fbbf24' : 'rgba(255,255,255,0.55)',
+            }}
+          >          
+            <span>🌍</span>
+            <span>Physics</span>
+          </button>
+
           {/* Exit */}
           <button
             onClick={onExit}
@@ -386,6 +409,23 @@ export default function AirCanvas({ onExit }) {
             <span>⭐ star</span>
             <span>🌌 spiral</span>
             <span>🌊 wave</span>
+          </div>
+        </div>
+      )}
+
+      {physicsMode && isActive && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-30 mt-2">
+          <div
+            className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium"
+            style={{
+              background: 'rgba(251,191,36,0.1)',
+              border: '1px solid rgba(251,191,36,0.25)',
+              color: '#fbbf24',
+              backdropFilter: 'blur(12px)',
+            }}
+          >
+            <span>🌍</span>
+            <span>Physics mode — draw shapes and watch them fall · circle=ball · wide=box · big circle=bubble</span>
           </div>
         </div>
       )}
