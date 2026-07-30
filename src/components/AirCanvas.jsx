@@ -10,6 +10,7 @@ import AccessibilityPanel from './AccessibilityPanel'
 import { useVoiceCommands } from '../hooks/useVoiceCommands'
 import { getAccessibilitySettings, subscribeAccessibility } from '../utils/accessibilitySettings'
 import PhysicsCanvas from './PhysicsCanvas'
+import EcosystemCanvas from './EcosystemCanvas'
 
 export default function AirCanvas({ onExit }) {
   const { videoRef, ready: camReady, error: camError } = useCamera(true)
@@ -30,6 +31,7 @@ export default function AirCanvas({ onExit }) {
   const [a11ySettings,    setA11ySettings]    = useState(getAccessibilitySettings())
   const [spellMode, setSpellMode] = useState(false)
   const [physicsMode, setPhysicsMode] = useState(false)
+  const [ecoMode, setEcoMode] = useState(false)
 
   // isActive defined here — before any hook that needs it
   const isActive = camReady && modelReady
