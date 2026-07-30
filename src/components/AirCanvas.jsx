@@ -293,6 +293,19 @@ export default function AirCanvas({ onExit }) {
           </button>
 
           <button
+            onClick={() => setEcoMode(e => !e)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all duration-200 hover:scale-105 active:scale-95"
+            style={{
+              background: ecoMode ? 'rgba(52,211,153,0.2)' : 'rgba(255,255,255,0.05)',
+              border: `1px solid ${ecoMode ? 'rgba(52,211,153,0.4)' : 'rgba(255,255,255,0.08)'}`,
+              color: ecoMode ? '#34d399' : 'rgba(255,255,255,0.55)',
+            }}
+          >          
+            <span>🌍</span>
+            <span>Ecosystem</span>
+          </button>
+
+          <button
             onClick={() => setPhysicsMode(p => !p)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all duration-200 hover:scale-105 active:scale-95"
             style={{
